@@ -1,92 +1,113 @@
-# klipper_auto_speed
+# Klipper Auto Speed
+ Klipper module for automatically calculating your printer's maximum acceleration/velocity
 
+**This module is under development**: Nothing should go wrong, but please keep an eye on your printer, as this will push it to it's physical limits.
 
+This module automatically performs [Ellis' TEST_SPEED macro](https://ellis3dp.com/Print-Tuning-Guide/articles/determining_max_speeds_accels.html), and measured the missed steps on your steppers at various accelerations/velocities. Depending on your ACCEL_START and VELOCITY_START, this may take a long time to finish.
 
-## Getting started
+# Table of Contents
+ - [Overview](https://github.com/Anonoei/klipper_auto_speed#overview)
+ - [How does it work](https://github.com/Anonoei/klipper_auto_speed#how-does-it-work)
+ - [Using Klipper Auto Speed](https://github.com/Anonoei/klipper_auto_speed#using-klipper-auto-speed)
+   - [Installation](https://github.com/Anonoei/klipper_auto_speed#installation)
+     - [Moonraker Update Manager](https://github.com/Anonoei/klipper_auto_speed#moonraker-update-manager)
+   - [Configuration](https://github.com/Anonoei/klipper_auto_speed#configuration)
+   - [Macro](https://github.com/Anonoei/klipper_auto_speed#macro)
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Overview
+ - License: MIT
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## How does it work?
+ 1. Home your printer
+ 2. If your print is enclosed, heat soak it. You want to run this module at the typical state your printer is in when you're printing.
+ 3. Run `AUTO_SPEED`
+    1. Check endstop variance
+       - Validate the endstops are accurate enough for `MAX_MISSED`
+    2. Find the maximum acceleration
+       - Given `ACCEL_START`, `ACCEL_STOP_` `ACCEL_STEP`, increase acceleration until we miss more than `MAX_MISSED` steps. Move the toolhead over the pattern at each velocity `TEST_ITERATION` times
+    3. Find maximum velocity
+       - Given `VELOCITY_START`, `VELOCITY_STOP_` `VELOCITY_STEP`, increase velocity until we miss more than `MAX_MISSED` steps. Move the toolhead over the pattern at each velocity `TEST_ITERATION` times
+    4. Stress test
+       - Start at max acceleration/velocity and slowly decrease both until less than `MAX_MISSED` steps are lost after `STRESS_INTERATION`s.
 
-## Add your files
+## Using Klipper Auto Speed
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+### Installation
+ To install this module you need to clone the repository and run the `install.sh` script
 
+#### Automatic installation
 ```
-cd existing_repo
-git remote add origin https://git.anonoei.com/anonoei/klipper_auto_speed.git
-git branch -M main
-git push -uf origin main
+cd ~
+git clone https://github.com/Anonoei/klipper_auto_speed.git
+cd klipper_auto_speed
+chmod +x install.sh
+./install.sh
 ```
 
-## Integrate with your tools
+#### Manual installation
+1.  Clone the repository
+    1. `cd ~`
+    2. `git clone https://github.com/Anonoei/klipper_auto_speed.git`
+    3. `cd klipper_auto_speed`
+2.  Link auto_speed to klipper
+    1. `ln -sf ~/klipper_auto_speed/auto_speed.py ~/klipper/klippy/extras/auto_speed.py`
+3.  Restart klipper
+    1. `sudo systemctl restart klipper`
 
-- [ ] [Set up project integrations](https://git.anonoei.com/anonoei/klipper_auto_speed/-/settings/integrations)
+### Moonraker Update Manager
+```
+[update_manager klipper_auto_speed]
+type: git_repo
+path: ~/klipper_auto_speed
+origin: https://github.com/anonoei/klipper_auto_speed.git
+primary_branch: main
+install_script: install.sh
+managed_services: klipper
+```
 
-## Collaborate with your team
+### Configuration
+Place this in your printer.cfg
+```
+[auto_speed]
+```
+The values listed below are the defaults Auto Speed uses. You can include them if you wish to change their values or run into issues.
+```
+[auto_speed]
+z: 50                 ; Z position to run Auto Speed
+margin: 20            ; How far away from your axis maximums to perform the test movement
+pattern_margin: 20    ; How far from your axis centers to perform the small test movement
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+settling_home: True   ; Perform settling home before starting Auto Speed
+max_missed: 1.0       ; Maximum full steps that can be missed
+endstop_samples: 3    ; How many endstop samples to take for endstop variance
 
-## Test and Deploy
+test_interations: 2   ; While testing for maximum, perform the test movement this many times
+stress_iterations: 50 ; While finding final maximums, perform the test movement this many times
 
-Use the built-in continuous integration in GitLab.
+accel_start: Unset    ; Starting acceleration, Defaults to your printer's current acceleration
+accel_stop: 50000.0   ; Maximum possible acceleration the test will go to
+accel_step: 1000.0    ; Increase accel_start by this amount each test
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+velocity_start: Unset ; Starting velocity, Defaults to your printer's current velocity
+velocity_stop: 5000.0 ; Maximum possible velocity the test will go to
+velocity_step: 50.0   ; Increase velocity_start by this amount each test
+```
 
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+### Macro
+Run the klipper command `AUTO_SPEED`. You can also use the arguments below
+Argument          | Default | Description
+----------------- | ------- | -----------
+Z                 | 50      | Z position to run Auto Speed
+MARGIN            | 20      | How far away from your axis maximums to perform the test movement
+PATTERN_MARGIN    | 20      | How far from your axis centers to perform the small test movement
+SETTLING_HOME     | 1       | Perform settling home before starting Auto Speed
+MAX_MISSED        | 1.0     | Maximum full steps that can be missed
+ENDSTOP_SAMPLES   | 3       | How many endstop samples to take for endstop variance
+TEST_ITERATIONS   | 2       | While testing for maximum, perform the test movement this many times
+STRESS_ITERATIONS | 50      | While finding final maximums, perform the test movement this many times
+ACCEL_START       | Unset   | Starting acceleration, Defaults to your printer's current acceleration
+ACCEL_STOP        | 50000.0 | Maximum possible acceleration the test will go to
+ACCEL_STEP        | 1000.0  | Increase accel_start by this amount each test
+VELOCITY_START    | Unset   | Starting velocity, Defaults to your printer's current velocity
+VELOCITY_STOP     | 5000.0  | Maximum possible velocity the test will go to
+VELOCITY_STEP     | 50.0    | Increase velocity_start by this amount each test
