@@ -40,7 +40,6 @@ This module automatically performs [Ellis' TEST_SPEED macro](https://ellis3dp.co
 cd ~
 git clone https://github.com/Anonoei/klipper_auto_speed.git
 cd klipper_auto_speed
-chmod +x install.sh
 ./install.sh
 ```
 
@@ -81,7 +80,7 @@ settling_home: True   ; Perform settling home before starting Auto Speed
 max_missed: 1.0       ; Maximum full steps that can be missed
 endstop_samples: 3    ; How many endstop samples to take for endstop variance
 
-test_interations: 2   ; While testing for maximum, perform the test movement this many times
+test_iterations: 2    ; While testing for maximum, perform the test movement this many times
 stress_iterations: 50 ; While finding final maximums, perform the test movement this many times
 
 accel_start: Unset    ; Starting acceleration, Defaults to your printer's current acceleration

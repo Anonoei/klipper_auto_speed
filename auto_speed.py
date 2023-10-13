@@ -3,8 +3,6 @@
 # Copyright (C) 2023 Anonoei <dev@anonoei.com>
 #
 # This file may be distributed under the terms of the MIT license.
-from extras.homing import Homing
-from extras.gcode_macro import PrinterGCodeMacro
 
 class AutoSpeed:
     def __init__(self, config):
@@ -30,7 +28,6 @@ class AutoSpeed:
         self.veloc_stop = config.getfloat('velocity_stop',   default=5000.0)
         self.veloc_step = config.getfloat('velocity_step',   default=50.0)
 
-        self.gcode_move = self.printer.lookup_object('gcode_move')
         self.toolhead = None
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler("homing:home_rails_end", self.handle_home_rails_end)
@@ -208,8 +205,8 @@ class AutoSpeed:
             self.gcode.respond_info(f"AUTO SPEED acceleleration measurement {step+1}\nMissed X {missed_x:.2f}, Y {missed_y:.2f} at a{accel}/v{veloc}")
             
             if not valid:
-                measured_accel = step
                 break
+            measured_accel = step
         self.gcode.respond_info(f"AUTO SPEED found maximum acceleration {accel_start + (accel_step * measured_accel)}, at velocity {veloc_start}")
 
         # Find velocity maximum
@@ -222,8 +219,8 @@ class AutoSpeed:
             self.gcode.respond_info(f"AUTO SPEED velocity measurement {step+1}\nMissed X {missed_x:.2f}, Y {missed_y:.2f} at v{veloc}/a{accel}")
             
             if not valid:
-                measured_veloc = step
                 break
+            measured_veloc = step
         self.gcode.respond_info(f"AUTO SPEED found maximum velocity {veloc_start + (veloc_step * measured_veloc)}, at accel {accel_start + (accel_step * (measured_accel - 1))}")
 
         # Perform stress test
@@ -338,6 +335,7 @@ class AutoSpeed:
         self.toolhead.max_accel = accel
         self.toolhead.requested_accel_to_decel = accel/2
         self.toolhead._calc_junction_deviation()
+
 
 def load_config(config):
     return AutoSpeed(config)
