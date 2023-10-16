@@ -7,23 +7,24 @@ import math
 from time import perf_counter
 
 class AttemptWrapper:
-    min: float = None
-    max: float = None
-    accuracy: float = None
-    iterations: int = 1
-    max_missed: int = None
-    travel: float = None
-    dist: float = None
-    func: callable = None
-    axis: str = ""
-    accel: float = None
-    veloc:float = None
+    def __init__(self):
+        self.min: float = None
+        self.max: float = None
+        self.accuracy: float = None
+        self.iterations: int = 1
+        self.max_missed: int = None
+        self.travel: float = None
+        self.dist: float = None
+        self.func: callable = None
+        self.axis: str = ""
+        self.accel: float = None
+        self.veloc: float = None
 
 class ResultsWrapper:
-    name: str = ""
-    duration: float = None
-    vals: dict = {
-    }
+    def __init__(self):
+        self.name: str = ""
+        self.duration: float = None
+        self.vals: dict = {}
 
     def derate(self, derate):
         vList = []

@@ -6,7 +6,7 @@
 This module automatically performs movements on the x, y, x diagonal, and y diagonal axes, and measures your steppers missed steps at various accelerations/velocities.
 With the default configuration, this may take *awhile* (up to an hour).
 Most of the testing time is waiting for your printer to home.
-On my printer with default settings (except MAX_MISSED), it takes 1398.34s for acceleration, 1201.21s for velocity, and XXXXX for the validation test.
+On my printer with default settings (except MAX_MISSED), it takes 1398.34s for acceleration, 1201.21s for velocity, and 331.38s for the validation test.
 
 **Sensorless homing**: If you're using sensorless homing `MAX_MISSED=1.0` is probably too low.
 The endstop variance check will tell you how many steps you lose when homing.
@@ -42,8 +42,8 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
 - Default usage (find max accel/velocity)
   - `AUTO_SPEED`
 - Find maximum acceleration on y axis
-  - `AUTO_SPEED_ACCEL X=0 DIAG_X=0 DIAG_Y=0`
-- Check your printer's current accel/velocity
+  - `AUTO_SPEED_ACCEL X=0 Y=1 DIAG_X=0 DIAG_Y=0`
+- Validate your printer's current accel/velocity
   - `AUTO_SPEED_VALIDATE`
 
 ## How does it work?
@@ -151,26 +151,22 @@ X                 | 0       | Perform test on X axis
 Y                 | 0       | Perform test on Y axis
 DIAG_X            | 1       | Perform test on x diagonal (stepper B)
 DIAG_X            | 1       | Perform test on y diagonal (stepper A)
-
 Z                 | 50      | Z position to run Auto Speed
 MARGIN            | 20      | How far away from your axis maximums to perform the test movement
 SETTLING_HOME     | 1       | Perform settling home before starting Auto Speed
 MAX_MISSED        | 1.0     | Maximum full steps that can be missed
 ENDSTOP_SAMPLES   | 3       | How many endstop samples to take for endstop variance
 TEST_ATTEMPTS     | 2       | Re-test this many times if test fails
-
 ACCEL_MIN         | 1000.0  | Minimum acceleration test may try
 ACCEL_MAX         | 50000.0 | Maximum acceleration test may try
 ACCEL_DIST        | 10.0    | Distance to move when testing, if 0, use total axis - margin
 ACCEL_ITTR        | 1       | How many iterations of the test to perform
 ACCEL_ACCU        | 500.0   | Keep binary searching until the result is this small
-
 VELOCITY_MIN      | 50.0    | Minimum velocity test may try
 VELOCITY_MAX      | 5000.0  | Maximum velocity test may try
 VELOCITY_DIST     | 0.0     | Distance to move when testing, if 0, use total axis - margin
 VELOCITY_ITTR     | 1       | How many iterations of the test to perform
 VELOCITY_ACCU     | 50.0    | Keep binary searching until the result is this small
-
 LEVEL             | 1       | Level the printer if it's not leveled
 VARIANCE          | 1       | Check endstop variance
 
@@ -182,11 +178,9 @@ VARIANCE          | 1       | Check endstop variance
  Y          | 0       | Perform test on Y axis
  DIAG_X     | 1       | Perform test on x diagonal (stepper B)
  DIAG_X     | 1       | Perform test on y diagonal (stepper A)
-
  MARGIN     | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
  DERATE     | 0.8     | How much to derate maximum values for the recommended max
  MAX_MISSED | 1.0     | Maximum fulls steps that can be missed
-
  ACCEL_MIN  | 1000.0  | Minimum acceleration test may try
  ACCEL_MAX  | 50000.0 | Maximum acceleration test may try
  ACCEL_DIST | 10.0    | Distance to move when testing, if 0, use (total axis - margin)
@@ -201,11 +195,9 @@ VARIANCE          | 1       | Check endstop variance
  Y             | 0       | Perform test on Y axis
  DIAG_X        | 1       | Perform test on x diagonal (stepper B)
  DIAG_X        | 1       | Perform test on y diagonal (stepper A)
-
  MARGIN        | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
  DERATE        | 0.8     | How much to derate maximum values for the recommended max
  MAX_MISSED    | 1.0     | Maximum fulls steps that can be missed
-
  VELOCITY_MIN  | 1000.0  | Minimum velocity test may try
  VELOCITY_MAX  | 50000.0 | Maximum velocity test may try
  VELOCITY_DIST | 0.0     | Distance to move when testing, if 0, use (total axis - margin)
@@ -220,7 +212,6 @@ VARIANCE          | 1       | Check endstop variance
  VALIDATE_MARGIN       | 20.0    | Margin axes max/min pattern can move to
  VALIDATE_INNER_MARGIN | 20.0    | Margin from axes center pattern can move to
  VALIDATE_ITERATIONS   | 50      | Repeat the pattern this many times
-
  ACCEL                 | Unset   | Defaults to current max accel
  VELOCITY              | Unset   | Defaults to current max velocity
 
@@ -267,6 +258,7 @@ AUTO SPEED found maximum velocity after 449.66s
 Recommended values
 | DIAG X max: 638
 | DIAG Y max: 638
+Recommended velocity: 638
 ```
 
 Recommended results
