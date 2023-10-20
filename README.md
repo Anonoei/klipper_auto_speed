@@ -21,6 +21,7 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
 # Table of Contents
  - [Overview](https://github.com/Anonoei/klipper_auto_speed#overview)
  - [Example Usage](https://github.com/Anonoei/klipper_auto_speed#example-usage)
+ - [Roadmap](https://github.com/Anonoei/klipper_auto_speed#roadmap)
  - [How does it work](https://github.com/Anonoei/klipper_auto_speed#how-does-it-work)
  - [Using Klipper Auto Speed](https://github.com/Anonoei/klipper_auto_speed#using-klipper-auto-speed)
    - [Installation](https://github.com/Anonoei/klipper_auto_speed#installation)
@@ -50,6 +51,15 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
   - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000`
 - Graph your printer's max accel between v100 and v1000, over 10 steps
   - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000 VELOCITY_DIV=10`
+ 
+## Roadmap
+ - [ ] Check kinematics to find best movement patterns
+ - [ ] Update calculated accel/velocity depending on test to be more accurate
+ - [ ] Update axis movement logic
+ - [ ] Add support for running through moonraker
+ - [ ] Add testing Z axis
+ - [ ] Reduce code duplication
+ - [ ] Save validated/measured results to printer config
 
 ## How does it work?
  1. Home your printer
