@@ -30,6 +30,10 @@ fi
 echo "Linking auto speed to Klipper..."
 ln -sf "${SRCDIR}/auto_speed.py" "${KLIPPER_PATH}/klippy/extras/auto_speed.py"
 
+# Install matplotlib
+echo "Installing matplotlib in klippy..."
+~/klippy-env/bin/python -m pip install matplotlib
+
 # Restart klipper
 echo "Restarting Klipper..."
 sudo systemctl restart klipper

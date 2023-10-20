@@ -6,17 +6,15 @@
 This module automatically performs movements on the x, y, x diagonal, and y diagonal axes, and measures your steppers missed steps at various accelerations/velocities.
 With the default configuration, this may take *awhile* (up to an hour).
 Most of the testing time is waiting for your printer to home.
-On my printer with default settings (except MAX_MISSED), it takes 1398.34s for acceleration, 1201.21s for velocity, and 331.38s for the validation test.
+On my printer with default settings (except MAX_MISSED), it takes ~23 minutes for acceleration, ~20 minutes for velocity, and 5 minutes for the validation test.
 
 **Sensorless homing**: If you're using sensorless homing `MAX_MISSED=1.0` is probably too low.
 The endstop variance check will tell you how many steps you lose when homing.
 For instance, on my printer I lose around 0-4.2 steps each home.
 I run `AUTO_SPEED MAX_MISSED=10.0` to account for that variance, and occasional wildly different results.
 
-**This module is under development**, and has only been validated on CoreXY printers: You may run into issues or bugs, feel free to message me on discord, or post an issue here.
-This module has two dedicated discord channels
- - [DOOMCUBE User Projects](https://discord.com/channels/825469421346226226/1162192150822404106)
- - [Voron VOC Projects](https://discord.com/channels/460117602945990666/1161906191623016540)
+**This module is under development**, and has only been validated on CoreXY printers: You may run into issues or bugs, feel free to use the discord channel, or post an issue here.
+ - [Discord - DOOMCUBE User Projects](https://discord.com/channels/825469421346226226/1162192150822404106)
 
 Your printer shouldn't have any crashes due to the movement patterns used, and re-homing before/after each test, so it's safe to walk away and let it do it's thing.
 
@@ -33,6 +31,7 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
      - [AUTO_SPEED_ACCEL](https://github.com/Anonoei/klipper_auto_speed#auto_speed_accel)
      - [AUTO_SPEED_VELOCITY](https://github.com/Anonoei/klipper_auto_speed#auto_speed_velocity)
      - [AUTO_SPEED_VALIDATE](https://github.com/Anonoei/klipper_auto_speed#auto_speed_validate)
+     - [AUTO_SPEED_GRAPH](https://github.com/Anonoei/klipper_auto_speed#auto_speed_graph)
  - [Console Output](https://github.com/Anonoei/klipper_auto_speed#console-output)
 
 ## Overview
@@ -42,9 +41,15 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
 - Default usage (find max accel/velocity)
   - `AUTO_SPEED`
 - Find maximum acceleration on y axis
-  - `AUTO_SPEED_ACCEL X=0 Y=1 DIAG_X=0 DIAG_Y=0`
+  - `AUTO_SPEED_ACCEL AXIS="y"`
+- Find maximum acceleration on y, then x axis
+  - `AUTO_SPEED_VELOCITY AXIS="y,x"`
 - Validate your printer's current accel/velocity
   - `AUTO_SPEED_VALIDATE`
+- Graph your printer's max accel between v00 and v1000
+  - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000`
+- Graph your printer's max accel between v100 and v1000, over 10 steps
+  - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000 VELOCITY_DIV=10`
 
 ## How does it work?
  1. Home your printer
@@ -98,7 +103,9 @@ cd klipper_auto_speed
     3. `cd klipper_auto_speed`
 2.  Link auto_speed to klipper
     1. `ln -sf ~/klipper_auto_speed/auto_speed.py ~/klipper/klippy/extras/auto_speed.py`
-3.  Restart klipper
+3.  Install matplotlib
+    1.  `~/klippy-env/bin/python -m pip install matplotlib`
+4.  Restart klipper
     1. `sudo systemctl restart klipper`
 
 ### Configuration
@@ -109,10 +116,7 @@ Place this in your printer.cfg
 The values listed below are the defaults Auto Speed uses. You can include them if you wish to change their values or run into issues.
 ```
 [auto_speed]
-x: False              ; By default, check x axis
-y: False              ; By default, check y axis
-diag_x: True          ; By default, check x diagonal
-diag_y: True          ; By default, check y diagonal
+axis: diag_x, diag_y  ; One or multiple of `x`, `y`, `diag_x`, `diag_y`
 
 z: Unset              ; Z position to run Auto Speed, defaults to 10% of z axis length
 margin: 20            ; How far away from your axis maximums to perform the test movement
@@ -121,9 +125,6 @@ pattern_margin: 20    ; How far from your axis centers to perform the small test
 settling_home: True   ; Perform settling home before starting Auto Speed
 max_missed: 1.0       ; Maximum full steps that can be missed
 endstop_samples: 3    ; How many endstop samples to take for endstop variance
-
-test_attempts: 2      ; Re-test this many times if test fails
-stress_iterations: 50 ; While finding final maximums, perform the test movement this many times
 
 accel_min: 1000.0     ; Minimum acceleration test may try
 accel_max: 50000.0    ; Maximum acceleration test may try
@@ -138,19 +139,22 @@ velocity_ittr: 1      ; How many iterations of the test to perform
 velocity_accu: 50.0   ; Keep binary searching until the result is this small
 
 derate: 0.8           ; Derate discovered results by this amount
+
+validate_margin: Unset      ; Margin for VALIDATE, Defaults to margin
+validate_inner_margin: 20.0 ; Margin for VALIDATE inner pattern
+validate_iterations: 50     ; Perform VALIDATE pattern this many times
 ```
 
 ### Macro
-Auto Speed is split into 4 separate macros. The default `AUTO_SPEED` automatically calls the other three (`AUTO_SPEED_ACCEL`, `AUTO_SPEED_VELOCITY`, `AUTO_SPEED_VALIDATE`). You can use any argument from those macros when you call `AUTO_SPEED`.
+Auto Speed is split into 5 separate macros. The default `AUTO_SPEED` automatically calls the other three (`AUTO_SPEED_ACCEL`, `AUTO_SPEED_VELOCITY`, `AUTO_SPEED_VALIDATE`). You can use any argument from those macros when you call `AUTO_SPEED`.
+
+You can also use `AUTO_SPEED_GRAPH` to find your printers velocity-to-accel relationship.
 
 #### AUTO_SPEED
  `AUTO_SPEED` finds maximum acceleration, velocity, and validates results at the end.
 Argument          | Default | Description
 ----------------- | ------- | -----------
-X                 | 0       | Perform test on X axis
-Y                 | 0       | Perform test on Y axis
-DIAG_X            | 1       | Perform test on x diagonal (stepper B)
-DIAG_X            | 1       | Perform test on y diagonal (stepper A)
+AXIS              | Unset   | Perform test on these axes, defaults to diag_x, diag_y
 Z                 | 50      | Z position to run Auto Speed
 MARGIN            | 20      | How far away from your axis maximums to perform the test movement
 SETTLING_HOME     | 1       | Perform settling home before starting Auto Speed
@@ -174,10 +178,7 @@ VARIANCE          | 1       | Check endstop variance
  `AUTO_SPEED_ACCEL` find maximum acceleration
  Argument   | Default | Description
  ---------- | ------- | -----------
- X          | 0       | Perform test on X axis
- Y          | 0       | Perform test on Y axis
- DIAG_X     | 1       | Perform test on x diagonal (stepper B)
- DIAG_X     | 1       | Perform test on y diagonal (stepper A)
+ AXIS       | Unset   | Perform test on these axes, defaults to diag_x, diag_y
  MARGIN     | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
  DERATE     | 0.8     | How much to derate maximum values for the recommended max
  MAX_MISSED | 1.0     | Maximum fulls steps that can be missed
@@ -191,15 +192,12 @@ VARIANCE          | 1       | Check endstop variance
  `AUTO_SPEED_VELOCITY` finds maximum velocity
  Argument      | Default | Description
  ------------- | ------- | -----------
- X             | 0       | Perform test on X axis
- Y             | 0       | Perform test on Y axis
- DIAG_X        | 1       | Perform test on x diagonal (stepper B)
- DIAG_X        | 1       | Perform test on y diagonal (stepper A)
+ AXIS          | Unset   | Perform test on these axes, defaults to diag_x, diag_y
  MARGIN        | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
  DERATE        | 0.8     | How much to derate maximum values for the recommended max
  MAX_MISSED    | 1.0     | Maximum fulls steps that can be missed
- VELOCITY_MIN  | 1000.0  | Minimum velocity test may try
- VELOCITY_MAX  | 50000.0 | Maximum velocity test may try
+ VELOCITY_MIN  | 100.0   | Minimum velocity test may try
+ VELOCITY_MAX  | 5000.0  | Maximum velocity test may try
  VELOCITY_DIST | 0.0     | Distance to move when testing, if 0, use (total axis - margin)
  VELOCITY_ITTR | 1       | How many iterations of the test to perform
  VELOCITY_ACCU | 50.0    | Keep binary searching until the result is this small
@@ -215,6 +213,29 @@ VARIANCE          | 1       | Check endstop variance
  ACCEL                 | Unset   | Defaults to current max accel
  VELOCITY              | Unset   | Defaults to current max velocity
 
+
+#### AUTO_SPEED_GRAPH
+ `AUTO_SPEED_GRAPH` graphs your printer's velocity-to-accel relationship on specified axes
+ You must specify `VELOCITY_MIN` and `VELOCITY_MAX`.
+ Results are saved to `~/printer_data/config`
+ Argument      | Default | Description
+ ------------- | ------- | -----------
+ AXIS          | Unset   | Perform test on these axes, defaults to diag_x, diag_y
+ MARGIN        | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
+ DERATE        | 0.8     | How much to derate maximum values for the recommended max
+ MAX_MISSED    | 1.0     | Maximum fulls steps that can be missed
+ VELOCITY_MIN  | Unset   | Minimum velocity test may try
+ VELOCITY_MAX  | Unset   | Maximum velocity test may try
+ VELOCITY_DIV  | 5       | How many velocities to test
+ VELOCITY_DIST | 0.0     | Distance to move when testing, if 0, use (total axis - margin)
+ VELOCITY_ITTR | 1       | How many iterations of the test to perform
+ VELOCITY_ACCU | 0.05    | Keep binary searching until the result within this percent
+ ACCEL_MIN_A   | 0.23    | Accel min parabola equation 'a'
+ ACCEL_MIN_B   | -300    | Accel min parabola equation 'b'
+ ACCEL_MIN_C   | 85000   | Accel min parabola equation 'c' - y at velocity 0
+ ACCEL_MAX_A   | 0.19    | Accel max parabola equation 'a'
+ ACCEL_MAX_B   | -300    | Accel max parabola equation 'b'
+ ACCEL_MAX_C   | 200000  | Accel max parabola equation 'c' - y at velocity 0
 
 ## Console Output
  Console output is slightly different depending on whether testing acceleration/velocity, and which axis is being tested.

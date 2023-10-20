@@ -6,6 +6,10 @@
 import math
 from time import perf_counter
 
+def constant_factor(v, k, d=1, a=0):
+    c = (k*v)**(1/d)
+    return c + a
+
 class AttemptWrapper:
     def __init__(self):
         self.min: float = None
@@ -20,11 +24,23 @@ class AttemptWrapper:
         self.accel: float = None
         self.veloc: float = None
 
+    def __str__(self):
+        fmt = f"AttemptWrapper {self.axis}\n"
+        fmt += f"| Min: {self.min}, Max: {self.max}\n"
+        fmt += f"| Accuracy: {self.accuracy}, Ittr: {self.iterations}, Max Missed: {self.max_missed}\n"
+        fmt += f"| Travel: {self.travel}, Dist: {self.dist}, Accel: {self.accel}, Veloc: {self.veloc}\n"
+        return fmt
+
 class ResultsWrapper:
     def __init__(self):
         self.name: str = ""
         self.duration: float = None
         self.vals: dict = {}
+
+    def __str__(self):
+        fmt = f"ResultsWrapper {self.name}, duration: {self.duration}\n"
+        fmt += f"| Vals: {self.vals}"
+        return fmt
 
     def derate(self, derate):
         vList = []
@@ -40,11 +56,16 @@ class AutoSpeed:
     def __init__(self, config):
         self.config = config
         self.printer = config.get_printer()
+        self.gcode = self.printer.lookup_object('gcode')
 
-        self.x = config.getboolean('x',   default=False)
-        self.y = config.getboolean('y',   default=False)
-        self.diag_x = config.getboolean('diag_x',   default=True)
-        self.diag_y = config.getboolean('diag_y',   default=True)
+        self.valid_axes = ["x", "y", "diag_x", "diag_y"]
+        self.axes = self._parse_axis(config.get('axis', 'diag_x, diag_y'))
+
+        self.default_axes = ''
+        
+        for axis in self.axes:
+            self.default_axes += f"{axis},"
+        self.default_axes = self.default_axes[:-1]
 
         self.z              = config.getfloat('z', default=None)
         self.margin         = config.getfloat('margin', default=20.0, above=0.0)
@@ -77,7 +98,6 @@ class AutoSpeed:
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler("homing:home_rails_end", self.handle_home_rails_end)
 
-        self.gcode = self.printer.lookup_object('gcode')
         self.gcode.register_command('AUTO_SPEED',
                                     self.cmd_AUTO_SPEED,
                                     desc=self.cmd_AUTO_SPEED_help)
@@ -87,15 +107,17 @@ class AutoSpeed:
         self.gcode.register_command('AUTO_SPEED_ACCEL',
                                     self.cmd_AUTO_SPEED_ACCEL,
                                     desc=self.cmd_AUTO_SPEED_ACCEL_help)
-        
         self.gcode.register_command('AUTO_SPEED_VALIDATE',
                                     self.cmd_AUTO_SPEED_VALIDATE,
                                     desc=self.cmd_AUTO_SPEED_VALIDATE_help)
+        self.gcode.register_command('AUTO_SPEED_GRAPH',
+                                    self.cmd_AUTO_SPEED_GRAPH,
+                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
         
         self.level = None
         
         self.steppers = {}
-        self.axes = {}
+        self.axis_limits = {}
     
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
@@ -127,13 +149,13 @@ class AutoSpeed:
                         self.steppers[name[-1]] = [pos_min, pos_max, microsteps]
 
             if self.steppers.get("x", None) is not None:
-                self.axes["x"] = {
+                self.axis_limits["x"] = {
                     "min": self.steppers["x"][0],
                     "max": self.steppers["x"][1],
                     "center": (self.steppers["x"][0] + self.steppers["x"][1]) / 2
                 }
             if self.steppers.get("y", None) is not None:
-                self.axes["y"] = {
+                self.axis_limits["y"] = {
                     "min": self.steppers["y"][0],
                     "max": self.steppers["y"][1],
                     "center": (self.steppers["y"][0] + self.steppers["y"][1]) / 2
@@ -147,7 +169,7 @@ class AutoSpeed:
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
 
-        validate = gcmd.get_int('VALIDATE', 1, minval=0, maxval=1)
+        validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
 
         self._prepare(gcmd)
         start = perf_counter()
@@ -155,7 +177,7 @@ class AutoSpeed:
         veloc_results = self.cmd_AUTO_SPEED_VELOCITY(gcmd)
 
         respond = f"AUTO SPEED found recommended acceleration and velocity after {perf_counter() - start:.2f}s\n"
-        for axis in ["x", "y", "diag_x", "diag_y"]:
+        for axis in self.valid_axes:
             aR = accel_results.vals.get(axis, None)
             vR = veloc_results.vals.get(axis, None)
             if aR is not None or vR is not None:
@@ -179,10 +201,7 @@ class AutoSpeed:
     def cmd_AUTO_SPEED_ACCEL(self, gcmd):
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
-        x    = gcmd.get_int("X",    self.x, minval=0, maxval=1)
-        y    = gcmd.get_int("Y",    self.y, minval=0, maxval=1)
-        diag_x = gcmd.get_int("DIAG_X", self.diag_x, minval=0, maxval=1)
-        diag_y = gcmd.get_int("DIAG_Y", self.diag_y, minval=0, maxval=1)
+        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
         derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
@@ -197,14 +216,8 @@ class AutoSpeed:
         veloc = gcmd.get_float('VELOCITY', 0.0, above=0.0)
 
         respond = "AUTO SPEED finding maximum acceleration on"
-        if x == 1:
-            respond += " X,"
-        if y == 1:
-            respond += " Y,"
-        if diag_x == 1:
-            respond += " DIAG X,"
-        if diag_y == 1:
-            respond += " DIAG Y,"
+        for axis in axes:
+            respond += f" {axis.upper().replace('_', ' ')},"
         self.gcode.respond_info(respond[:-1])
 
         aw = AttemptWrapper()
@@ -215,17 +228,17 @@ class AutoSpeed:
         aw.dist  = accel_dist
         aw.accuracy = accel_accu
         aw.veloc = veloc
-        accel_results = self.find_max(aw, margin, self._attempt_accel, x, y, diag_x, diag_y)
+        accel_results = self.find_max(aw, margin, self._attempt_accel, axes)
         accel_results.name = "acceleration"
         respond = f"AUTO SPEED found maximum acceleration after {accel_results.duration:.2f}s\n"
-        for axis in ["x", "y", "diag_x", "diag_y"]:
+        for axis in self.valid_axes:
             if accel_results.vals.get(axis, None) is not None:
                 respond += f"| {axis.replace('_', ' ').upper()} max: {accel_results.vals[axis]:.0f}\n"
         respond += f"\n"
 
         accel_results.derate(derate)
         respond += f"Recommended values:\n"
-        for axis in ["x", "y", "diag_x", "diag_y"]:
+        for axis in self.valid_axes:
             if accel_results.vals.get(axis, None) is not None:
                 respond += f"| {axis.replace('_', ' ').upper()} max: {accel_results.vals[axis]:.0f}\n"
         respond += f"Reommended acceleration: {accel_results.vals['rec']:.0f}\n"
@@ -237,10 +250,7 @@ class AutoSpeed:
     def cmd_AUTO_SPEED_VELOCITY(self, gcmd):
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
-        x    = gcmd.get_int("X",    self.x, minval=0, maxval=1)
-        y    = gcmd.get_int("Y",    self.y, minval=0, maxval=1)
-        diag_x = gcmd.get_int("DIAG_X", self.diag_x, minval=0, maxval=1)
-        diag_y = gcmd.get_int("DIAG_Y", self.diag_y, minval=0, maxval=1)
+        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
         derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
@@ -255,14 +265,8 @@ class AutoSpeed:
         accel = gcmd.get_float('ACCEL', 0.0, above=0.0)
 
         respond = "AUTO SPEED finding maximum velocity on"
-        if x == 1:
-            respond += " X,"
-        if y == 1:
-            respond += " Y,"
-        if diag_x == 1:
-            respond += " DIAG X,"
-        if diag_y == 1:
-            respond += " DIAG Y,"
+        for axis in axes:
+            respond += f" {axis.upper().replace('_', ' ')},"
         self.gcode.respond_info(respond[:-1])
 
         aw = AttemptWrapper()
@@ -273,17 +277,17 @@ class AutoSpeed:
         aw.dist  = veloc_dist
         aw.accuracy  = veloc_accu
         aw.accel = accel
-        veloc_results = self.find_max(aw, margin, self._attempt_veloc, x, y, diag_x, diag_y)
+        veloc_results = self.find_max(aw, margin, self._attempt_veloc, axes)
         veloc_results.name = "velocity"
         respond = f"AUTO SPEED found maximum velocity after {veloc_results.duration:.2f}s\n"
-        for axis in ["x", "y", "diag_x", "diag_y"]:
+        for axis in self.valid_axes:
             if veloc_results.vals.get(axis, None) is not None:
                 respond += f"| {axis.replace('_', ' ').upper()} max: {veloc_results.vals[axis]:.0f}\n"
         respond += "\n"
 
         veloc_results.derate(derate)
         respond += f"Recommended values\n"
-        for axis in ["x", "y", "diag_x", "diag_y"]:
+        for axis in self.valid_axes:
             if veloc_results.vals.get(axis, None) is not None:
                 respond += f"| {axis.replace('_', ' ').upper()} max: {veloc_results.vals[axis]:.0f}\n"
         respond += f"Recommended velocity: {veloc_results.vals['rec']:.0f}\n"
@@ -316,12 +320,133 @@ class AutoSpeed:
         respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f}"
         self.gcode.respond_info(respond)
         return valid
+    
+    cmd_AUTO_SPEED_GRAPH_help = ("Graph your printer's maximum acceleration at given velocities")
+    def cmd_AUTO_SPEED_GRAPH(self, gcmd):
+        import matplotlib.pyplot as plt
+        if not len(self.steppers.keys()) == 3:
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+
+        margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
+        derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
+        max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
+
+        veloc_min  = gcmd.get_float('VELOCITY_MIN', above=0.0)
+        veloc_max  = gcmd.get_float('VELOCITY_MAX', above=veloc_min)
+        veloc_div  = gcmd.get_int(  'VELOCITY_DIV', 5, minval=0)
+        veloc_dist = gcmd.get_float('VELOCITY_DIST', self.veloc_dist, above=0.0)
+        veloc_ittr = gcmd.get_int(  'VELOCITY_ITTR', self.veloc_ittr, minval=0)
+
+        accel_accu = gcmd.get_float('ACCEL_ACCU', 0.05, above=0.0, below=1.0)
+
+        accel_min_a = gcmd.get_float('ACCEL_MIN_A', 0.23, above=0)
+        accel_min_b = gcmd.get_float('ACCEL_MIN_B', -300, below=0)
+        accel_min_c = gcmd.get_float('ACCEL_MIN_C', 85_000, above=0)
+
+        accel_max_a = gcmd.get_float('ACCEL_MAX_A', 0.19, above=0)
+        accel_max_b = gcmd.get_float('ACCEL_MAX_B', -300, below=0)
+        accel_max_c = gcmd.get_float('ACCEL_MAX_C', 200_000, above=0)
+
+        veloc_step = (veloc_max - veloc_min)//(veloc_div - 1)
+        velocs = [round((v * veloc_step) + veloc_min) for v in range(0, veloc_div)]
+        respond = "AUTO SPEED graphing maximum accel from velocities on"
+        for axis in axes:
+            respond += f" {axis.upper().replace('_', ' ')},"
+        respond = respond[:-1] + "\n"
+        respond += f"V_MIN: {veloc_min}, V_MAX: {veloc_max}, V_STEP: {veloc_step}\n"
+        self.gcode.respond_info(respond)
+
+        aw = AttemptWrapper()
+        aw.max_missed = max_missed
+        aw.iterations = veloc_ittr
+        aw.min = veloc_min
+        aw.max  = veloc_max
+        aw.dist  = veloc_dist
+        for axis in axes:
+            aw.axis = axis
+            if axis == "diag_x":
+                aw.func = self._check_diag_x
+                if aw.dist == 0.0:
+                    aw.dist = min([self.axis_limits["y"]["center"] - margin, self.axis_limits["x"]["center"] - margin])
+                aw.travel = self._calc_travel(aw.dist, aw.dist)
+            elif axis == "diag_y":
+                aw.func = self._check_diag_y
+                if aw.dist == 0.0:
+                    aw.dist = min([self.axis_limits["y"]["center"] - margin, self.axis_limits["x"]["center"] - margin])
+                aw.travel = self._calc_travel(aw.dist, aw.dist)
+            elif axis == "x":
+                aw.func = self._check_x
+                if aw.dist == 0.0:
+                    aw.dist = (self.axis_limits["x"]["center"] - margin)
+                aw.travel = aw.dist
+            elif axis == "y":
+                aw.func = self._check_y
+                if aw.dist == 0.0:
+                    aw.dist = (self.axis_limits["y"]["center"] - margin)
+                aw.travel = aw.dist
+            else:
+                raise gcmd.error(f"Unknown axis '{axis}'")
+            aw.travel = round(aw.travel * 2)
+
+            accels = []
+            accel_mins = []
+            accel_maxs = []
+            for veloc in velocs:
+                self.gcode.respond_info(f"AUTO SPEED graph {aw.axis} - v{veloc}")
+                a_min = round(self._calc_accel_parabola(veloc, accel_min_a, accel_min_b, accel_min_c))
+                a_max = round(self._calc_accel_parabola(veloc, accel_max_a, accel_max_b, accel_max_c))
+                if accel_mins and a_min > accel_mins[-1]:
+                    a_min = accel_mins[-1]
+                if accel_maxs and a_max > accel_maxs[-1]:
+                    a_max = accel_maxs[-1]
+                accel_mins.append(a_min)
+                accel_maxs.append(a_max)
+                accel = round(a_min + (a_max-a_min) // 3)
+                measuring = True
+                while measuring:
+                    #self.gcode.respond_info(f"a_min: {a_min:.0f}, a_max: {a_max:.0f} - a{accel:.0f}")
+                    valid, missed_x, missed_y, timeMove, timeAttempt = self._attempt(aw, accel, veloc)
+                    respond = f"AUTO SPEED graph {aw.axis} ({timeAttempt:.2f}s)\n"
+                    respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f} at a{accel:.0f}/v{veloc:.0f} over {timeMove:.2f}s"
+                    self.gcode.respond_info(respond)
+                    if accel * (1 + accel_accu) > a_max or accel * (1 - accel_accu) < a_min:
+                        measuring = False
+
+                    if valid:
+                        a_min = accel
+                    else:
+                        a_max = accel
+                    accel = round((a_min + a_max)/2)
+                accels.append(accel)
+            plt.plot(velocs, accels, 'go-', label='measured')
+            plt.plot(velocs, accel_mins, 'bo-', label='min')
+            plt.plot(velocs, accel_maxs, 'ro-', label='max')
+            plt.plot(velocs, [a*derate for a in accels], 'go-', label='derated')
+            plt.legend(loc='upper right')
+            plt.title(f"Max accel at velocity over {aw.travel}mm on {aw.axis} to {int(accel_accu*100)}%")
+            plt.xlabel("Velocity")
+            plt.ylabel("Acceleration")
+            path = f"../printer_data/config/AUTO_SPEED_GRAPH_{aw.axis}.png"
+            self.gcode.respond_info(f"Velocs: {velocs}")
+            self.gcode.respond_info(f"Accels: {accels}")
+            self.gcode.respond_info(f"Saving graph to {path}")
+            plt.savefig(path, bbox_inches='tight')
+            plt.close()
+
 
     # -------------------------------------------------------
     #
     #     Internal Methods
     #
     # -------------------------------------------------------
+    def _calc_accel_parabola(self, x, a, b, c):
+        a = a * x**2
+        b = b * x
+        result = a + b + c
+        if result < 0:
+            return 0
+        return result
 
     def _prepare(self, gcmd):
         if not len(self.steppers.keys()) == 3:
@@ -332,7 +457,7 @@ class AutoSpeed:
         start = perf_counter()
         # Level the printer if it's not leveled
         self._level(gcmd)
-        self._move([self.axes["x"]["center"], self.axes["y"]["center"], z], self.th_veloc)
+        self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], z], self.th_veloc)
 
         self._variance(gcmd)
        
@@ -394,39 +519,49 @@ class AutoSpeed:
             raise gcmd.error(f"Please increase MAX_MISSED (currently {max_missed}), or tune your steppers/homing macro.")
 
 
-    def find_max(self, aw: AttemptWrapper, margin, func: callable, x=True, y=True, diag_x=True, diag_y = True):
+    def find_max(self, aw: AttemptWrapper, margin, func: callable, axes):
         rw = ResultsWrapper()
         start = perf_counter()
-        if diag_x:
-            if aw.dist == 0.0:
-                aw.dist = min([self.axes["y"]["center"] - margin, self.axes["x"]["center"] - margin])
-            aw.axis = "diag_x"
-            aw.travel = self._calc_travel(aw.dist, aw.dist)
-            aw.func = self._check_diag_x
-            rw.vals[aw.axis] = func(aw)
-        if diag_y:
-            if aw.dist == 0.0:
-                aw.dist = min([self.axes["y"]["center"] - margin, self.axes["x"]["center"] - margin])
-            aw.axis = "diag_y"
-            aw.travel = self._calc_travel(aw.dist, aw.dist)
-            aw.func = self._check_diag_y
-            rw.vals[aw.axis] = func(aw)
-        if x:
-            if aw.dist == 0.0:
-                aw.dist = (self.axes["x"]["center"] - margin)
-            aw.axis = "x"
-            aw.travel = aw.dist * 2
-            aw.func = self._check_x
-            rw.vals[aw.axis] = func(aw)
-        if y:
-            if aw.dist == 0.0:
-                aw.dist = (self.axes["y"]["center"] - margin)
-            aw.axis = "y"
-            aw.travel = aw.dist * 2
-            aw.func = self._check_y
+        for axis in axes:
+            aw.axis = axis
+            if axis == "diag_x":
+                aw.func = self._check_diag_x
+                if aw.dist == 0.0:
+                    aw.dist = min([self.axis_limits["y"]["center"] - margin, self.axis_limits["x"]["center"] - margin])
+                aw.travel = self._calc_travel(aw.dist, aw.dist)
+            elif axis == "diag_y":
+                aw.func = self._check_diag_y
+                if aw.dist == 0.0:
+                    aw.dist = min([self.axis_limits["y"]["center"] - margin, self.axis_limits["x"]["center"] - margin])
+                aw.travel = self._calc_travel(aw.dist, aw.dist)
+            elif axis == "x":
+                aw.func = self._check_x
+                if aw.dist == 0.0:
+                    aw.dist = (self.axis_limits["x"]["center"] - margin)
+                aw.travel = aw.dist
+            elif axis == "y":
+                aw.func = self._check_y
+                if aw.dist == 0.0:
+                    aw.dist = (self.axis_limits["y"]["center"] - margin)
+                aw.travel = aw.dist
+            aw.travel = round(aw.travel * 2)
             rw.vals[aw.axis] = func(aw)
         rw.duration = perf_counter() - start
         return rw
+    
+    def _attempt(self, aw: AttemptWrapper, accel, veloc):
+        # if self.debug:
+            # self.gcode.respond_info(f"_attempt: AW: {aw}")
+        timeAttempt = perf_counter()
+        self._set_velocity(veloc, accel)
+        start_steps = self._pretest(x=True, y=True)
+        timeMove = perf_counter()
+        aw.func(veloc, aw.dist, aw.iterations)
+        self.toolhead.wait_moves()
+        timeMove = perf_counter() - timeMove
+        valid, missed_x, missed_y = self._posttest(start_steps, aw.max_missed, x=True, y=True)
+        timeAttempt = perf_counter() - timeAttempt
+        return valid, missed_x, missed_y, timeMove, timeAttempt
     
     def _attempt_accel(self, aw: AttemptWrapper):
         #self.gcode.respond_info("AUTO SPEED checking accel...")
@@ -438,20 +573,12 @@ class AutoSpeed:
         accel = m_min + (m_max-m_min) // 3
         veloc = aw.veloc
         while measuring:
-            start = perf_counter()
             tries += 1
             if aw.veloc == 0.0:
                 veloc = self._calc_velocity(accel, aw.travel)/2.5
-            self._set_velocity(veloc, accel)
-            #self.gcode.respond_info(f"Trying min: {m_min:.0f}, max:{m_max:.0f} at {accel:.0f}")
-            start_steps = self._pretest(x=True, y=True)
-            check_start = perf_counter()
-            aw.func(veloc, aw.dist, aw.iterations)
-            self.toolhead.wait_moves()
-            duration = perf_counter() - check_start
-            valid, missed_x, missed_y = self._posttest(start_steps, aw.max_missed, x=True, y=True)
-            respond = f"AUTO SPEED acceleration {aw.axis} measurement {tries} ({perf_counter() - start:.2f}s)\n"
-            respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f} at a{accel:.0f}/v{veloc:.0f} over {duration:.2f}s"
+            valid, missed_x, missed_y, timeMove, timeAttempt = self._attempt(aw, accel, veloc)
+            respond = f"AUTO SPEED acceleration {aw.axis} measurement {tries} ({timeAttempt:.2f}s)\n"
+            respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f} at a{accel:.0f}/v{veloc:.0f} over {timeMove:.2f}s"
             self.gcode.respond_info(respond)
             if measured_accel is not None:
                 if accel > measured_accel - aw.accuracy and accel < measured_accel + aw.accuracy:
@@ -474,20 +601,12 @@ class AutoSpeed:
         veloc = m_min + (m_max-m_min) // 3
         accel = aw.accel
         while measuring:
-            start = perf_counter()
             tries += 1
             if aw.accel == 0.0:
                 accel = self._calc_accel(veloc, aw.travel)*2.5
-            self._set_velocity(veloc, accel)
-            #self.gcode.respond_info(f"Trying min: {m_min:.0f}, max:{m_max:.0f} at {accel:.0f}")
-            start_steps = self._pretest(x=True, y=True)
-            check_start = perf_counter()
-            aw.func(veloc, aw.dist, aw.iterations)
-            self.toolhead.wait_moves()
-            duration = perf_counter() - check_start
-            valid, missed_x, missed_y = self._posttest(start_steps, aw.max_missed, x=True, y=True)
-            respond = f"AUTO SPEED velocity {aw.axis} measurement {tries} ({perf_counter() - start:.2f}s)\n"
-            respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f} at v{veloc:.0f}/a{accel:.0f} over {duration:.2f}s"
+            valid, missed_x, missed_y, timeMove, timeAttempt = self._attempt(aw, accel, veloc)
+            respond = f"AUTO SPEED velocity {aw.axis} measurement {tries} ({timeAttempt:.2f}s)\n"
+            respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f} at v{veloc:.0f}/a{accel:.0f} over {timeMove:.2f}s"
             self.gcode.respond_info(respond)
             if measured_veloc is not None:
                 if veloc > measured_veloc - aw.accuracy and veloc < measured_veloc + aw.accuracy:
@@ -530,46 +649,46 @@ class AutoSpeed:
         return valid, missed_x, missed_y
     
     def _check_x(self, speed: float, dist: float, iterations: int = 1):
-        self._move([self.axes["x"]["center"], self.axes["y"]["center"], None], speed)
+        self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], None], speed)
         for _ in range(iterations):
-            self._move([self.axes["x"]["center"] + dist, None, None], speed)
-            self._move([self.axes["x"]["center"], None, None], speed)
-            self._move([self.axes["x"]["center"] - dist, None, None], speed)
+            self._move([self.axis_limits["x"]["center"] + dist, None, None], speed)
+            self._move([self.axis_limits["x"]["center"], None, None], speed)
+            self._move([self.axis_limits["x"]["center"] - dist, None, None], speed)
 
     def _check_y(self, speed: float, dist: float, iterations: int = 1):
-        self._move([self.axes["x"]["center"], self.axes["y"]["center"], None], speed)
+        self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], None], speed)
         for _ in range(iterations):
-            self._move([None, self.axes["y"]["center"]  + dist, None], speed)
-            self._move([None, self.axes["y"]["center"], None], speed)
-            self._move([None, self.axes["y"]["center"]  - dist, None], speed)
+            self._move([None, self.axis_limits["y"]["center"]  + dist, None], speed)
+            self._move([None, self.axis_limits["y"]["center"], None], speed)
+            self._move([None, self.axis_limits["y"]["center"]  - dist, None], speed)
 
     def _check_diag_x(self, speed: float, dist: float, iterations: int = 1): # B stepper
-        self._move([self.axes["x"]["center"], self.axes["y"]["center"], None], speed)
+        self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], None], speed)
         for _ in range(iterations):
-            self._move([self.axes["x"]["center"] + dist, self.axes["y"]["center"] + dist, None], speed)
-            self._move([self.axes["x"]["center"], self.axes["y"]["center"], None], speed)
-            self._move([self.axes["x"]["center"] - dist, self.axes["y"]["center"] - dist, None], speed)
+            self._move([self.axis_limits["x"]["center"] + dist, self.axis_limits["y"]["center"] + dist, None], speed)
+            self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], None], speed)
+            self._move([self.axis_limits["x"]["center"] - dist, self.axis_limits["y"]["center"] - dist, None], speed)
     
     def _check_diag_y(self, speed: float, dist: float, iterations: int = 1): # A stepper
-        self._move([self.axes["x"]["center"], self.axes["y"]["center"], None], speed)
+        self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], None], speed)
         for _ in range(iterations):
-            self._move([self.axes["x"]["center"] + dist, self.axes["y"]["center"] - dist, None], speed)
-            self._move([self.axes["x"]["center"], self.axes["y"]["center"], None], speed)
-            self._move([self.axes["x"]["center"] - dist, self.axes["y"]["center"] + dist, None], speed)
+            self._move([self.axis_limits["x"]["center"] + dist, self.axis_limits["y"]["center"] - dist, None], speed)
+            self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], None], speed)
+            self._move([self.axis_limits["x"]["center"] - dist, self.axis_limits["y"]["center"] + dist, None], speed)
 
     def _validate(self, speed, iterations, margin, small_margin, max_missed):
         pos = {
             "x": {
-                "min": self.axes["x"]["min"] + margin,
-                "max": self.axes["x"]["max"] - margin,
-                "center_min": self.axes["x"]["center"] - (small_margin/2),
-                "center_max": self.axes["x"]["center"] + (small_margin/2),
+                "min": self.axis_limits["x"]["min"] + margin,
+                "max": self.axis_limits["x"]["max"] - margin,
+                "center_min": self.axis_limits["x"]["center"] - (small_margin/2),
+                "center_max": self.axis_limits["x"]["center"] + (small_margin/2),
             },
             "y": {
-                "min": self.axes["y"]["min"] + margin,
-                "max": self.axes["y"]["max"] - margin,
-                "center_min": self.axes["y"]["center"] - (small_margin/2),
-                "center_max": self.axes["y"]["center"] + (small_margin/2),
+                "min": self.axis_limits["y"]["min"] + margin,
+                "max": self.axis_limits["y"]["max"] - margin,
+                "center_min": self.axis_limits["y"]["center"] - (small_margin/2),
+                "center_max": self.axis_limits["y"]["center"] + (small_margin/2),
             }
         }
         self.toolhead.wait_moves()
@@ -701,6 +820,23 @@ class AutoSpeed:
     
     def _calc_travel(self, x: float, y: float):
         return math.sqrt(x**2 + y**2)
+    
+    def _parse_axis(self, raw_axes):
+        raw_axes = raw_axes.lower()
+        raw_axes = raw_axes.replace(" ", "")
+        raw_axes = raw_axes.split(',')
+        axes = []
+        for axis in raw_axes:
+            if axis in self.valid_axes:
+                axes.append(axis)
+        return axes
+    
+    def _axis_to_str(self, raw_axes):
+        axes = ""
+        for axis in raw_axes:
+            axes += f"{axis},"
+        axes = axes[:-1]
+        return axes
 
 
 def load_config(config):
