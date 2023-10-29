@@ -3,10 +3,10 @@
 
 *With one copy/paste and one line in your configuration, automatically optimize your printer's motion*
 
-This module automatically performs movements on the x, y, x diagonal, and y diagonal axes, and measures your steppers missed steps at various accelerations/velocities.
-With the default configuration, this may take *awhile* (up to an hour).
+This module automatically performs movements on the x, y, x diagonal, y diagonal , and z axes, and measures your steppers missed steps at various accelerations/velocities.
+With the default configuration, this may take *awhile* (~10 minutes).
 Most of the testing time is waiting for your printer to home.
-On my printer with default settings (except MAX_MISSED), it takes ~23 minutes for acceleration, ~20 minutes for velocity, and 5 minutes for the validation test.
+On my printer with default settings (except MAX_MISSED), it takes ~3.5 minutes for acceleration, and ~5 minutes for velocity.
 
 **Sensorless homing**: If you're using sensorless homing `MAX_MISSED=1.0` is probably too low.
 The endstop variance check will tell you how many steps you lose when homing.
@@ -47,18 +47,18 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
   - `AUTO_SPEED_VELOCITY AXIS="y,x"`
 - Validate your printer's current accel/velocity
   - `AUTO_SPEED_VALIDATE`
-- Graph your printer's max accel between v00 and v1000
-  - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000`
-- Graph your printer's max accel between v100 and v1000, over 10 steps
-  - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000 VELOCITY_DIV=10`
+- Graph your printer's max accel
+  - `AUTO_SPEED_GRAPH`
+- Graph your printer's max accel between v100 and v1000, over 9 steps
+  - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000 VELOCITY_DIV=9`
  
 ## Roadmap
- - [ ] Check kinematics to find best movement patterns
- - [ ] Update calculated accel/velocity depending on test to be more accurate
- - [ ] Update axis movement logic
+ - [X] Check kinematics to find best movement patterns
+ - [X] Update calculated accel/velocity depending on test to be more accurate
+ - [X] Update axis movement logic
  - [ ] Add support for running through moonraker
- - [ ] Add testing Z axis
- - [ ] Reduce code duplication
+ - [X] Add testing Z axis
+ - [X] Reduce code duplication
  - [ ] Save validated/measured results to printer config
 
 ## How does it work?
@@ -69,13 +69,13 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
        - Validate the endstops are accurate enough for `MAX_MISSED`
     2. Find the maximum acceleration
        - Perform a binary search between `ACCEL_MIN` and `ACCEL_MAX`
-       - velocity = `(math.sqrt(travel/accel)*accel) * .7`
+       - velocity = $sqrt(travel/accel)*accel / 2.5$
        1. Home, and save stepper start steps
        2. Perform the movement check on the specified axis
        3. Home, and save stepper stop steps
     3. Find maximum velocity
        - Perform a binary search between `VELOCITY_MIN` and `VELOCITY_MAX`
-       - accel = `(velocity**2/travel) * 4`
+       - accel = $\frac{velocity^2}{travel} * 2.5$
        1. Home, and save stepper start steps
        2. Perform the movement check on the specified axis
        3. Home, and save stepper stop steps
@@ -96,7 +96,8 @@ managed_services: klipper
 ```
 
 ### Installation
- To install this module you need to clone the repository and run the `install.sh` script
+ To install this module you need to clone the repository and run the `install.sh` script.
+ Depending on when you installed klipper, you may also need to update your klippy-env python version.
 
 #### Automatic installation
 ```
@@ -118,6 +119,13 @@ cd klipper_auto_speed
 4.  Restart klipper
     1. `sudo systemctl restart klipper`
 
+#### Update klippy-env
+ 1. `sudo apt install python3`
+ 2. `sudo apt install python3-numpy`
+ 3. `sudo systemctl stop klipper`
+ 4. `python3 -m venv --update ~/klippy-env`
+ 5. `~/klippy-env/bin/pip install -r "~/klipper/scripts/klippy-requirements.txt"`
+
 ### Configuration
 Place this in your printer.cfg
 ```
@@ -126,11 +134,9 @@ Place this in your printer.cfg
 The values listed below are the defaults Auto Speed uses. You can include them if you wish to change their values or run into issues.
 ```
 [auto_speed]
-axis: diag_x, diag_y  ; One or multiple of `x`, `y`, `diag_x`, `diag_y`
+axis: diag_x, diag_y  ; One or multiple of `x`, `y`, `diag_x`, `diag_y`, `z`
 
-z: Unset              ; Z position to run Auto Speed, defaults to 10% of z axis length
-margin: 20            ; How far away from your axis maximums to perform the test movement
-pattern_margin: 20    ; How far from your axis centers to perform the small test movement
+margin: 20            ; How far away from your axes to perform movements
 
 settling_home: True   ; Perform settling home before starting Auto Speed
 max_missed: 1.0       ; Maximum full steps that can be missed
@@ -138,15 +144,11 @@ endstop_samples: 3    ; How many endstop samples to take for endstop variance
 
 accel_min: 1000.0     ; Minimum acceleration test may try
 accel_max: 50000.0    ; Maximum acceleration test may try
-accel_dist: 10.0      ; Distance to move when testing, if 0, use total axis - margin
-accel_ittr: 1         ; How many iterations of the test to perform
-accel_accu: 500.0     ; Keep binary searching until the result is this small
+accel_accu: 0.05      ; Keep binary searching until the result is within this percentage
 
 velocity_min: 50.0    ; Minimum velocity test may try
 velocity_max: 5000.0  ; Maximum velocity test may try
-velocity_dist: 0.0    ; Distance to move when testing, if 0, use total axis - margin
-velocity_ittr: 1      ; How many iterations of the test to perform
-velocity_accu: 50.0   ; Keep binary searching until the result is this small
+velocity_accu: 0.05   ; Keep binary searching until the result is within this percentage
 
 derate: 0.8           ; Derate discovered results by this amount
 
@@ -173,14 +175,10 @@ ENDSTOP_SAMPLES   | 3       | How many endstop samples to take for endstop varia
 TEST_ATTEMPTS     | 2       | Re-test this many times if test fails
 ACCEL_MIN         | 1000.0  | Minimum acceleration test may try
 ACCEL_MAX         | 50000.0 | Maximum acceleration test may try
-ACCEL_DIST        | 10.0    | Distance to move when testing, if 0, use total axis - margin
-ACCEL_ITTR        | 1       | How many iterations of the test to perform
-ACCEL_ACCU        | 500.0   | Keep binary searching until the result is this small
+ACCEL_ACCU        | 0.05    | Keep binary searching until the result is within this percentage
 VELOCITY_MIN      | 50.0    | Minimum velocity test may try
 VELOCITY_MAX      | 5000.0  | Maximum velocity test may try
-VELOCITY_DIST     | 0.0     | Distance to move when testing, if 0, use total axis - margin
-VELOCITY_ITTR     | 1       | How many iterations of the test to perform
-VELOCITY_ACCU     | 50.0    | Keep binary searching until the result is this small
+VELOCITY_ACCU     | 0.05    | Keep binary searching until the result is within this percentage
 LEVEL             | 1       | Level the printer if it's not leveled
 VARIANCE          | 1       | Check endstop variance
 
@@ -194,9 +192,7 @@ VARIANCE          | 1       | Check endstop variance
  MAX_MISSED | 1.0     | Maximum fulls steps that can be missed
  ACCEL_MIN  | 1000.0  | Minimum acceleration test may try
  ACCEL_MAX  | 50000.0 | Maximum acceleration test may try
- ACCEL_DIST | 10.0    | Distance to move when testing, if 0, use (total axis - margin)
- ACCEL_ITTR | 1       | How many iterations of the test to perform
- ACCEL_ACCU | 500.0   | Keep binary searching until the result is this small
+ ACCEL_ACCU | 0.05    | Keep binary searching until the result is within this percentage
 
 #### AUTO_SPEED_VELOCITY
  `AUTO_SPEED_VELOCITY` finds maximum velocity
@@ -208,9 +204,7 @@ VARIANCE          | 1       | Check endstop variance
  MAX_MISSED    | 1.0     | Maximum fulls steps that can be missed
  VELOCITY_MIN  | 100.0   | Minimum velocity test may try
  VELOCITY_MAX  | 5000.0  | Maximum velocity test may try
- VELOCITY_DIST | 0.0     | Distance to move when testing, if 0, use (total axis - margin)
- VELOCITY_ITTR | 1       | How many iterations of the test to perform
- VELOCITY_ACCU | 50.0    | Keep binary searching until the result is this small
+ VELOCITY_ACCU | 0.05    | Keep binary searching until the result is within this percentage
 
 #### AUTO_SPEED_VALIDATE
  `AUTO_SPEED_VALIDATE` validates a specified acceleration/velocity, using [Ellis' TEST_SPEED Pattern](https://github.com/AndrewEllis93/Print-Tuning-Guide/blob/main/macros/TEST_SPEED.cfg)
@@ -228,75 +222,68 @@ VARIANCE          | 1       | Check endstop variance
  `AUTO_SPEED_GRAPH` graphs your printer's velocity-to-accel relationship on specified axes
  You must specify `VELOCITY_MIN` and `VELOCITY_MAX`.
  Results are saved to `~/printer_data/config`
- Argument      | Default | Description
- ------------- | ------- | -----------
- AXIS          | Unset   | Perform test on these axes, defaults to diag_x, diag_y
- MARGIN        | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
- DERATE        | 0.8     | How much to derate maximum values for the recommended max
- MAX_MISSED    | 1.0     | Maximum fulls steps that can be missed
- VELOCITY_MIN  | Unset   | Minimum velocity test may try
- VELOCITY_MAX  | Unset   | Maximum velocity test may try
- VELOCITY_DIV  | 5       | How many velocities to test
- VELOCITY_DIST | 0.0     | Distance to move when testing, if 0, use (total axis - margin)
- VELOCITY_ITTR | 1       | How many iterations of the test to perform
- VELOCITY_ACCU | 0.05    | Keep binary searching until the result within this percent
- ACCEL_MIN_A   | 0.23    | Accel min parabola equation 'a'
- ACCEL_MIN_B   | -300    | Accel min parabola equation 'b'
- ACCEL_MIN_C   | 85000   | Accel min parabola equation 'c' - y at velocity 0
- ACCEL_MAX_A   | 0.19    | Accel max parabola equation 'a'
- ACCEL_MAX_B   | -300    | Accel max parabola equation 'b'
- ACCEL_MAX_C   | 200000  | Accel max parabola equation 'c' - y at velocity 0
+ Argument        | Default | Description
+ --------------- | ------- | -----------
+ AXIS            | Unset   | Perform test on these axes, defaults to diag_x, diag_y
+ MARGIN          | 20.0    | Used when DIST is 0.0, how far away from axis to perform movements
+ DERATE          | 0.8     | How much to derate maximum values for the recommended max
+ MAX_MISSED      | 1.0     | Maximum fulls steps that can be missed
+ VELOCITY_MIN    | Unset   | Minimum velocity test may try
+ VELOCITY_MAX    | Unset   | Maximum velocity test may try
+ VELOCITY_DIV    | 5       | How many velocities to test
+ VELOCITY_ACCU   | 0.05    | Keep binary searching until the result within this percent
+ ACCEL_MIN_SLOPE | 100     | Calculated min slope value $\frac{10000}{velocity \div slope}$
+ ACCEL_MAX_SLOPE | 1800    | Calculated max slope value $\frac{10000}{velocity \div slope}$
 
 ## Console Output
  Console output is slightly different depending on whether testing acceleration/velocity, and which axis is being tested.
 
- - `axis` is one of `x`, `y`, `diag_x`, `diag_y`
+ - `axis` is one of `x`, `y`, `diag_x`, `diag_y`, `z`
+ - The three times `after` times are first home time, movement time, end home time
 
 For acceleration tests:
 ```
-AUTO SPEED acceleration diag_x measurement 4 (47.48s)
-Missed X 4898.39, Y 0.02 at a14750/v659 over 1.24s
+AUTO SPEED accel on diag_x try 1 (19.66s)
+Moved 1.43mm at a17333/v241 after 8.92/0.30/9.93s
+Missed X 0.31, Y 2.00
 ```
 
 Velocity tests are the same as acceleration except a few details
 ```
-AUTO SPEED velocity diag_y measurement 5 (40.97s)
-Missed X 2.11, Y 3.98 at v797/a8635 over 1.24s
+AUTO SPEED velocity on diag_y try 1 (23.91s)
+Moved 13.44mm at a91456/v1700 after 8.92/0.31/13.87s
+Missed X 0.06, Y 132.00
 ```
 
 Acceleration results
 ```
-AUTO SPEED found maximum acceleration after 1398.34s
-| X max: 49249
-| Y max: 30107
-| DIAG X max: 27084
-| DIAG Y max: 24169
+AUTO SPEED found maximum acceleration after 218.00s
+| DIAG X max: 48979
+| DIAG Y max: 48979
 
 Recommended values:
-| X max: 39399
-| Y max: 24085
-| DIAG X max: 21668
-| DIAG Y max: 19335
-Recommended acceleration: 19335
+| DIAG X max: 39183
+| DIAG Y max: 39183
+Reommended acceleration: 39183
 ```
 
 Velocity results
 ```
-AUTO SPEED found maximum velocity after 449.66s
-| DIAG X max: 797
-| DIAG Y max: 797
+AUTO SPEED found maximum velocity after 307.60s
+| DIAG X max: 577
+| DIAG Y max: 552
 
 Recommended values
-| DIAG X max: 638
-| DIAG Y max: 638
-Recommended velocity: 638
-```
+| DIAG X max: 462
+| DIAG Y max: 442
+Recommended velocity: 442
+``
 
 Recommended results
 ```
-AUTO SPEED found recommended acceleration and velocity after 993.64s
-| DIAG X max: a11217 v638
-| DIAG Y max: a10033 v638
-Recommended accel: 10033
-Recommended velocity: 638
+AUTO SPEED found recommended acceleration and velocity after 525.61s
+| DIAG X max: a39183 v462
+| DIAG Y max: a39183 v442
+Recommended accel: 39183
+Recommended velocity: 442
 ```
