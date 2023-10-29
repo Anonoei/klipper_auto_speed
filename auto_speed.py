@@ -3,12 +3,10 @@
 # Copyright (C) 2023 Anonoei <dev@anonoei.com>
 #
 # This file may be distributed under the terms of the MIT license.
+import os
 import math
 from time import perf_counter
-
-def constant_factor(v, k, d=1, a=0):
-    c = (k*v)**(1/d)
-    return c + a
+import datetime as dt
 
 class AttemptWrapper:
     def __init__(self):
@@ -340,13 +338,8 @@ class AutoSpeed:
 
         accel_accu = gcmd.get_float('ACCEL_ACCU', 0.05, above=0.0, below=1.0)
 
-        accel_min_a = gcmd.get_float('ACCEL_MIN_A', 0.23, above=0)
-        accel_min_b = gcmd.get_float('ACCEL_MIN_B', -300, below=0)
-        accel_min_c = gcmd.get_float('ACCEL_MIN_C', 85_000, above=0)
-
-        accel_max_a = gcmd.get_float('ACCEL_MAX_A', 0.19, above=0)
-        accel_max_b = gcmd.get_float('ACCEL_MAX_B', -300, below=0)
-        accel_max_c = gcmd.get_float('ACCEL_MAX_C', 200_000, above=0)
+        accel_min_slope = gcmd.get_int('ACCEL_MIN_SLOPE', 100, minval=0)
+        accel_max_slope = gcmd.get_int('ACCEL_MAX_SLOPE', 1750, minval=accel_min_slope)
 
         veloc_step = (veloc_max - veloc_min)//(veloc_div - 1)
         velocs = [round((v * veloc_step) + veloc_min) for v in range(0, veloc_div)]
@@ -394,8 +387,8 @@ class AutoSpeed:
             accel_maxs = []
             for veloc in velocs:
                 self.gcode.respond_info(f"AUTO SPEED graph {aw.axis} - v{veloc}")
-                a_min = round(self._calc_accel_parabola(veloc, accel_min_a, accel_min_b, accel_min_c))
-                a_max = round(self._calc_accel_parabola(veloc, accel_max_a, accel_max_b, accel_max_c))
+                a_min = round(self._calc_accel_eq(veloc, accel_min_slope))
+                a_max = round(self._calc_accel_eq(veloc, accel_max_slope))
                 if accel_mins and a_min > accel_mins[-1]:
                     a_min = accel_mins[-1]
                 if accel_maxs and a_max > accel_maxs[-1]:
@@ -405,7 +398,7 @@ class AutoSpeed:
                 accel = round(a_min + (a_max-a_min) // 3)
                 measuring = True
                 while measuring:
-                    #self.gcode.respond_info(f"a_min: {a_min:.0f}, a_max: {a_max:.0f} - a{accel:.0f}")
+                    self.gcode.respond_info(f"a_min: {a_min:.0f}, a_max: {a_max:.0f} - a{accel:.0f}")
                     valid, missed_x, missed_y, timeMove, timeAttempt = self._attempt(aw, accel, veloc)
                     respond = f"AUTO SPEED graph {aw.axis} ({timeAttempt:.2f}s)\n"
                     respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f} at a{accel:.0f}/v{veloc:.0f} over {timeMove:.2f}s"
@@ -427,7 +420,10 @@ class AutoSpeed:
             plt.title(f"Max accel at velocity over {aw.travel}mm on {aw.axis} to {int(accel_accu*100)}%")
             plt.xlabel("Velocity")
             plt.ylabel("Acceleration")
-            path = f"../printer_data/config/AUTO_SPEED_GRAPH_{aw.axis}.png"
+            path = os.path.dirname(self.printer.start_args['log_file'])
+            if path is None:
+                path = '../printer_data/config'
+            path += f"/AUTO_SPEED_GRAPH_{dt.datetime.now():%Y-%m-%d_%H:%M:%S}_{aw.axis}.png"
             self.gcode.respond_info(f"Velocs: {velocs}")
             self.gcode.respond_info(f"Accels: {accels}")
             self.gcode.respond_info(f"Saving graph to {path}")
@@ -440,13 +436,8 @@ class AutoSpeed:
     #     Internal Methods
     #
     # -------------------------------------------------------
-    def _calc_accel_parabola(self, x, a, b, c):
-        a = a * x**2
-        b = b * x
-        result = a + b + c
-        if result < 0:
-            return 0
-        return result
+    def _calc_accel_eq(self, velocity: float, slope: int):
+        return (10000/(velocity/slope))
 
     def _prepare(self, gcmd):
         if not len(self.steppers.keys()) == 3:
@@ -837,7 +828,6 @@ class AutoSpeed:
             axes += f"{axis},"
         axes = axes[:-1]
         return axes
-
 
 def load_config(config):
     return AutoSpeed(config)
