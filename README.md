@@ -53,13 +53,14 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
   - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000 VELOCITY_DIV=9`
  
 ## Roadmap
+ - [ ] Make _ACCEL/_VELOCITY smarter, based on printer size
+ - [ ] Add support for running through moonraker
+ - [ ] Save validated/measured results to printer config
+ - [X] Add testing Z axis
+ - [X] Reduce code duplication
  - [X] Check kinematics to find best movement patterns
  - [X] Update calculated accel/velocity depending on test to be more accurate
  - [X] Update axis movement logic
- - [ ] Add support for running through moonraker
- - [X] Add testing Z axis
- - [X] Reduce code duplication
- - [ ] Save validated/measured results to printer config
 
 ## How does it work?
  1. Home your printer
@@ -264,7 +265,7 @@ AUTO SPEED found maximum acceleration after 218.00s
 Recommended values:
 | DIAG X max: 39183
 | DIAG Y max: 39183
-Reommended acceleration: 39183
+Recommended acceleration: 39183
 ```
 
 Velocity results
@@ -277,7 +278,7 @@ Recommended values
 | DIAG X max: 462
 | DIAG Y max: 442
 Recommended velocity: 442
-``
+```
 
 Recommended results
 ```

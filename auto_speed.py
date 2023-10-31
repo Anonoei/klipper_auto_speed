@@ -66,8 +66,8 @@ class Move:
             self.Init(axis_limits, margin)
 
     def _validate(self, margin: float):
-        if self.dist < 1.0:
-            self.dist = 1.0
+        if self.dist < 5.0:
+            self.dist = 5.0
         self.dist += margin
         if self.dist > self.max_dist:
             self.dist = self.max_dist
@@ -78,7 +78,7 @@ class Move:
         ...
 
 class MoveX(Move):
-    home = [True, False, False]
+    home = [True, True, False]
     def Init(self, axis_limits, margin):
         self.max_dist = axis_limits["x"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
@@ -95,7 +95,7 @@ class MoveX(Move):
         }
 
 class MoveY(Move):
-    home = [False, True, False]
+    home = [True, True, False]
     def Init(self, axis_limits, margin):
         self.max_dist = axis_limits["y"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
@@ -230,7 +230,7 @@ class AutoSpeed:
         self.endstop_samples = config.getint(    'endstop_samples', default=3, minval=2)
 
         self.accel_min  = config.getfloat('accel_min',  default=1000.0, above=1.0)
-        self.accel_max  = config.getfloat('accel_max',  default=50000.0, above=self.accel_min)
+        self.accel_max  = config.getfloat('accel_max',  default=100000.0, above=self.accel_min)
         self.accel_accu = config.getfloat('accel_accu', default=0.05, above=0.0, below=1.0)
 
         self.veloc_min  = config.getfloat('velocity_min',  default=50.0, above=1.0)
@@ -405,7 +405,7 @@ class AutoSpeed:
         for axis in self.valid_axes:
             if rw.vals.get(axis, None) is not None:
                 respond += f"| {axis.replace('_', ' ').upper()} max: {rw.vals[axis]:.0f}\n"
-        respond += f"Reommended acceleration: {rw.vals['rec']:.0f}\n"
+        respond += f"Recommended acceleration: {rw.vals['rec']:.0f}\n"
 
         self.gcode.respond_info(respond)
         return rw
