@@ -78,8 +78,9 @@ class Move:
         ...
 
 class MoveX(Move):
-    home = [True, True, False]
-    def Init(self, axis_limits, margin):
+    def Init(self, axis_limits, margin, is_cartesian):
+        home_y = not is_cartesian 
+        self.home = [True, home_y, False]
         self.max_dist = axis_limits["x"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self._calc(axis_limits, veloc, accel, margin)
@@ -95,8 +96,9 @@ class MoveX(Move):
         }
 
 class MoveY(Move):
-    home = [True, True, False]
-    def Init(self, axis_limits, margin):
+    def Init(self, axis_limits, margin, is_cartesian):
+        home_x = not is_cartesian 
+        self.home = [home_x, True, False]
         self.max_dist = axis_limits["y"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self._calc(axis_limits, veloc, accel, margin)
@@ -153,7 +155,7 @@ class MoveDiagY(Move):
 
 class MoveZ(Move):
     home = [False, False, True]
-    def Init(self, axis_limits, margin):
+    def Init(self, axis_limits, margin, is_cartesian):
         self.max_dist = axis_limits["z"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self.dist = (calculate_distance(veloc, accel))
@@ -222,6 +224,9 @@ class AutoSpeed:
         for axis in self.axes:
             self.default_axes += f"{axis},"
         self.default_axes = self.default_axes[:-1]
+
+        self.printer_kinematics = self.config.getsection("printer").get("kinematics")
+        self.is_cartesian = self.printer_kinematics == 'cartesian'
 
         self.margin         = config.getfloat('margin', default=20.0, above=0.0)
 
@@ -325,6 +330,7 @@ class AutoSpeed:
 
     cmd_AUTO_SPEED_help = ("Automatically find your printer's maximum acceleration/velocity")
     def cmd_AUTO_SPEED(self, gcmd):
+
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
 
@@ -619,11 +625,19 @@ class AutoSpeed:
             self.toolhead.wait_moves()
             self._home(True, True, False)
 
-        # Check endstop variance
-        endstops = self._endstop_variance(endstop_samples, x=True, y=True)
+        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+        
+        kin = self.config.getsection("printer").get("kinematics")
+        is_cartesian = kin == 'cartesian'
 
-        x_max = max(endstops["x"])
-        y_max = max(endstops["y"])
+        check_x = 'x' in axes if is_cartesian else True
+        check_y = 'y' in axes if is_cartesian else True
+
+        # Check endstop variance
+        endstops = self._endstop_variance(endstop_samples, x=check_x, y=check_y)
+
+        x_max = max(endstops["x"]) if check_x else 0
+        y_max = max(endstops["y"]) if check_y else 0
         self.gcode.respond_info(f"AUTO SPEED endstop variance:\nMissed X:{x_max:.2f} steps, Y:{y_max:.2f} steps")
         
         if x_max >= max_missed or y_max >= max_missed:
@@ -663,7 +677,7 @@ class AutoSpeed:
             aw.move = MoveY()
         elif axis == "z":
             aw.move = MoveZ()
-        aw.move.Init(self.axis_limits, aw.margin)
+        aw.move.Init(self.axis_limits, aw.margin, self.is_cartesian)
 
     def binary_search(self, aw: AttemptWrapper):
         aw.time_start = perf_counter()
