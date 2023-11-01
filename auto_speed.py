@@ -272,8 +272,9 @@ class AutoSpeed:
     
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
-        self.th_accel = self.toolhead.max_accel
-        self.th_veloc = self.toolhead.max_velocity
+        # Reduce speed/acceleration for positioning movement
+        self.th_accel = self.toolhead.max_accel/2
+        self.th_veloc = self.toolhead.max_velocity/2
 
         # Find and define leveling method
         if self.printer.lookup_object("screw_tilt_adjust", None) is not None:
