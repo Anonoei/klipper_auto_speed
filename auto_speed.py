@@ -78,8 +78,8 @@ class Move:
         ...
 
 class MoveX(Move):
-    def Init(self, axis_limits, margin, is_cartesian):
-        home_y = not is_cartesian 
+    def Init(self, axis_limits, margin, isolate_xy):
+        home_y = not isolate_xy 
         self.home = [True, home_y, False]
         self.max_dist = axis_limits["x"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
@@ -96,8 +96,8 @@ class MoveX(Move):
         }
 
 class MoveY(Move):
-    def Init(self, axis_limits, margin, is_cartesian):
-        home_x = not is_cartesian 
+    def Init(self, axis_limits, margin, isolate_xy):
+        home_x = not isolate_xy 
         self.home = [home_x, True, False]
         self.max_dist = axis_limits["y"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
@@ -155,7 +155,7 @@ class MoveDiagY(Move):
 
 class MoveZ(Move):
     home = [False, False, True]
-    def Init(self, axis_limits, margin, is_cartesian):
+    def Init(self, axis_limits, margin, isolate_xy):
         self.max_dist = axis_limits["z"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self.dist = (calculate_distance(veloc, accel))
@@ -226,7 +226,7 @@ class AutoSpeed:
         self.default_axes = self.default_axes[:-1]
 
         self.printer_kinematics = self.config.getsection("printer").get("kinematics")
-        self.is_cartesian = self.printer_kinematics == 'cartesian'
+        self.isolate_xy = self.printer_kinematics == 'cartesian' or self.printer_kinematics == 'corexz'
 
         self.margin         = config.getfloat('margin', default=20.0, above=0.0)
 
@@ -626,12 +626,9 @@ class AutoSpeed:
             self._home(True, True, False)
 
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
-        
-        kin = self.config.getsection("printer").get("kinematics")
-        is_cartesian = kin == 'cartesian'
 
-        check_x = 'x' in axes if is_cartesian else True
-        check_y = 'y' in axes if is_cartesian else True
+        check_x = 'x' in axes if self.isolate_xy else True
+        check_y = 'y' in axes if self.isolate_xy else True
 
         # Check endstop variance
         endstops = self._endstop_variance(endstop_samples, x=check_x, y=check_y)
@@ -677,7 +674,7 @@ class AutoSpeed:
             aw.move = MoveY()
         elif axis == "z":
             aw.move = MoveZ()
-        aw.move.Init(self.axis_limits, aw.margin, self.is_cartesian)
+        aw.move.Init(self.axis_limits, aw.margin, self.isolate_xy)
 
     def binary_search(self, aw: AttemptWrapper):
         aw.time_start = perf_counter()
