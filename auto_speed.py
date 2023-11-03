@@ -184,7 +184,9 @@ class AttemptWrapper:
         self.margin: float = None
         self.accel: float = 0.0
         self.veloc: float = 0.0
-
+        
+        self.home_steps: float = None
+        
         self.tries: int = 0
         self.move: Move = None
         self.move_dist: float = 0.0
@@ -270,8 +272,9 @@ class AutoSpeed:
     
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
-        self.th_accel = self.toolhead.max_accel
-        self.th_veloc = self.toolhead.max_velocity
+        # Reduce speed/acceleration for positioning movement
+        self.th_accel = self.toolhead.max_accel/2
+        self.th_veloc = self.toolhead.max_velocity/2
 
         # Find and define leveling method
         if self.printer.lookup_object("screw_tilt_adjust", None) is not None:
@@ -693,6 +696,7 @@ class AutoSpeed:
         measuring = True
         measured_val = None
         aw.tries = 0
+        aw.home_steps, aw.move_time_prehome = self._prehome(aw.move.home)
         while measuring:
             aw.tries += 1
             if aw.type in ("accel", "graph"):
@@ -740,7 +744,6 @@ class AutoSpeed:
 
     def _attempt(self, aw: AttemptWrapper):
         timeAttempt = perf_counter()
-        start_steps, aw.move_time_prehome = self._pretest(aw.move.home)
 
         self._set_velocity(self.th_veloc, self.th_accel)
         self._move([aw.move.pos["x"][0], aw.move.pos["y"][0], aw.move.pos["z"][0]], self.th_veloc)
@@ -753,7 +756,7 @@ class AutoSpeed:
         aw.move_time = perf_counter() - timeMove
         aw.move_dist = aw.move.dist
         
-        valid, aw.missed, aw.move_time_posthome = self._posttest(start_steps, aw.max_missed, aw.move.home)
+        valid, aw.home_steps, aw.missed, aw.move_time_posthome = self._posttest(aw.home_steps, aw.max_missed, aw.move.home)
         aw.time_last = perf_counter() - timeAttempt
         return valid
 
@@ -881,15 +884,15 @@ class AutoSpeed:
                 pos[s_name[-1]] = s.get_mcu_position()
         return pos
 
-    def _pretest(self, home: list):
+    def _prehome(self, home: list):
         self.toolhead.wait_moves()
         dur = perf_counter()
         self._home(home[0], home[1], home[2])
         self.toolhead.wait_moves()
         dur = perf_counter() - dur
 
-        start_steps = self._get_steps()
-        return start_steps, dur
+        home_steps = self._get_steps()
+        return home_steps, dur
     
     def _posttest(self, start_steps, max_missed, home: list):
         self.toolhead.wait_moves()
@@ -918,7 +921,7 @@ class AutoSpeed:
             if missed["z"] > max_missed:
                 valid = False
 
-        return valid, missed, dur
+        return valid, stop_steps, missed, dur
     
     def _set_velocity(self, velocity: float, accel: float):
         #self.gcode.respond_info(f"AUTO SPEED setting limits to VELOCITY={velocity} ACCEL={accel}")
