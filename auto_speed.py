@@ -115,7 +115,7 @@ class MoveY(Move):
 
 class MoveDiagX(Move):
     home = [True, True, False]
-    def Init(self, axis_limits, margin):
+    def Init(self, axis_limits, margin, _):
         self.max_dist = min(axis_limits["x"]["dist"], axis_limits["y"]["dist"]) - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self._calc(axis_limits, veloc, accel, margin)
@@ -135,7 +135,7 @@ class MoveDiagX(Move):
 
 class MoveDiagY(Move):
     home = [True, True, False]
-    def Init(self, axis_limits, margin):
+    def Init(self, axis_limits, margin, _):
         self.max_dist = min(axis_limits["x"]["dist"], axis_limits["y"]["dist"]) - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self._calc(axis_limits, veloc, accel, margin)
@@ -155,7 +155,7 @@ class MoveDiagY(Move):
 
 class MoveZ(Move):
     home = [False, False, True]
-    def Init(self, axis_limits, margin, isolate_xy):
+    def Init(self, axis_limits, margin, _):
         self.max_dist = axis_limits["z"]["dist"] - margin*2
     def Calc(self, axis_limits, veloc, accel, margin):
         self.dist = (calculate_distance(veloc, accel))
@@ -216,17 +216,17 @@ class AutoSpeed:
         self.gcode = self.printer.lookup_object('gcode')
         self.gcode_move = self.printer.load_object(config, 'gcode_move')
 
+        self.printer_kinematics = self.config.getsection("printer").get("kinematics")
+        self.isolate_xy = self.printer_kinematics == 'cartesian' or self.printer_kinematics == 'corexz'
+
         self.valid_axes = ["x", "y", "diag_x", "diag_y", "z"]
-        self.axes = self._parse_axis(config.get('axis', 'diag_x, diag_y'))
+        self.axes = self._parse_axis(config.get('axis', 'x, y' if self.isolate_xy else 'diag_x, diag_y'))
 
         self.default_axes = ''
         
         for axis in self.axes:
             self.default_axes += f"{axis},"
         self.default_axes = self.default_axes[:-1]
-
-        self.printer_kinematics = self.config.getsection("printer").get("kinematics")
-        self.isolate_xy = self.printer_kinematics == 'cartesian' or self.printer_kinematics == 'corexz'
 
         self.margin         = config.getfloat('margin', default=20.0, above=0.0)
 
