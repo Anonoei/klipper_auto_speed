@@ -568,6 +568,7 @@ class AutoSpeed:
             self.gcode.respond_info(f"Velocs: {velocs}")
             self.gcode.respond_info(f"Accels: {accels}")
             self.gcode.respond_info(f"AUTO SPEED graph found max accel on {aw.axis} after {perf_counter() - start:.0f}s\nSaving graph to {path}")
+            os.makedirs(path, exist_ok=True)
             plt.savefig(path, bbox_inches='tight')
             plt.close()
 
