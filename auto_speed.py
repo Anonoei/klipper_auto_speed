@@ -250,6 +250,12 @@ class AutoSpeed:
         self.validate_inner_margin = config.getfloat('validate_inner_margin', default=20.0, above=0.0)
         self.validate_iterations   = config.getint(  'validate_iterations', default=50, minval=1)
 
+        self.results_dir = config.get(
+            'results_dir',
+            default=(os.path.dirname(self.printer.start_args['log_file'])
+                     or os.path.expanduser('~/printer_data/config'))
+        )
+
         self.toolhead = None
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler("homing:home_rails_end", self.handle_home_rails_end)
@@ -555,13 +561,14 @@ class AutoSpeed:
             plt.title(f"Max accel at velocity on {aw.axis} to {int(accel_accu*100)}% accuracy")
             plt.xlabel("Velocity")
             plt.ylabel("Acceleration")
-            path = os.path.dirname(self.printer.start_args['log_file'])
-            if path is None:
-                path = '../printer_data/config'
-            path += f"/AUTO_SPEED_GRAPH_{dt.datetime.now():%Y-%m-%d_%H:%M:%S}_{aw.axis}.png"
+            path = os.path.join(
+                self.results_dir,
+                f"AUTO_SPEED_GRAPH_{dt.datetime.now():%Y-%m-%d_%H:%M:%S}_{aw.axis}.png"
+            )
             self.gcode.respond_info(f"Velocs: {velocs}")
             self.gcode.respond_info(f"Accels: {accels}")
             self.gcode.respond_info(f"AUTO SPEED graph found max accel on {aw.axis} after {perf_counter() - start:.0f}s\nSaving graph to {path}")
+            os.makedirs(path, exist_ok=True)
             plt.savefig(path, bbox_inches='tight')
             plt.close()
 

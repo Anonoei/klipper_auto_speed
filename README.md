@@ -156,6 +156,8 @@ derate: 0.8           ; Derate discovered results by this amount
 validate_margin: Unset      ; Margin for VALIDATE, Defaults to margin
 validate_inner_margin: 20.0 ; Margin for VALIDATE inner pattern
 validate_iterations: 50     ; Perform VALIDATE pattern this many times
+
+results_dir: ~/printer_data/config ; Destination directory for graphs
 ```
 
 ### Macro
@@ -222,7 +224,7 @@ VARIANCE          | 1       | Check endstop variance
 #### AUTO_SPEED_GRAPH
  `AUTO_SPEED_GRAPH` graphs your printer's velocity-to-accel relationship on specified axes
  You must specify `VELOCITY_MIN` and `VELOCITY_MAX`.
- Results are saved to `~/printer_data/config`
+
  Argument        | Default | Description
  --------------- | ------- | -----------
  AXIS            | Unset   | Perform test on these axes, defaults to diag_x, diag_y
