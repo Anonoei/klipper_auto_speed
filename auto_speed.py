@@ -4,212 +4,12 @@
 #
 # This file may be distributed under the terms of the MIT license.
 import os
-import math
 from time import perf_counter
 import datetime as dt
 
-def calculate_velocity(accel: float, travel: float):
-    return math.sqrt(travel/accel)*accel
-
-def calculate_accel(veloc: float, travel: float):
-    return veloc**2/travel
-
-def calculate_distance(veloc: float, accel: float):
-    return veloc**2/accel
-
-def calculate_diagonal(x: float, y: float):
-    return math.sqrt(x**2 + y**2)
-
-def calculate_graph(velocity: float, slope: int):
-    return (10000/(velocity/slope))
-
-class ResultsWrapper:
-    def __init__(self):
-        self.name: str = ""
-        self.duration: float = None
-        self.vals: dict = {}
-
-    def __str__(self):
-        fmt = f"ResultsWrapper {self.name}, duration: {self.duration}\n"
-        fmt += f"| Vals: {self.vals}"
-        return fmt
-
-    def derate(self, derate):
-        vList = []
-        newVals = {}
-        for k, v in self.vals.items():
-            newVals[f"max_{k}"] = v
-            newVals[k] = v * derate
-            vList.append(newVals[k])
-        self.vals = newVals
-        self.vals["rec"] = min(vList)
-
-class Move:
-    home = [False, False, False]
-    def __init__(self):
-        self.dist = 0.0
-        self.pos = {}
-        self.max_dist: float = 0.0
-
-    def __str__(self):
-        fmt = f"dist/max {self.dist:.0f}/{self.max_dist:.0f}\n"
-        if self.pos.get("x", None) is not None:
-            fmt += f"Pos X: {self.pos['x']}\n"
-        if self.pos.get("y", None) is not None:
-            fmt += f"Pos Y: {self.pos['y']}\n"
-        if self.pos.get("z", None) is not None:
-            fmt += f"Pos Z: {self.pos['z']}\n"
-        return fmt
-
-    def _calc(self, axis_limits, veloc, accel, margin):
-        if self.max_dist == 0.0:
-            self.Init(axis_limits, margin)
-
-    def _validate(self, margin: float):
-        if self.dist < 5.0:
-            self.dist = 5.0
-        self.dist += margin
-        if self.dist > self.max_dist:
-            self.dist = self.max_dist
-
-    def Init(self, axis_limits, margin):
-        ...
-    def Calc(self, axis_limits, veloc, accel, margin):
-        ...
-
-class MoveX(Move):
-    def Init(self, axis_limits, margin, isolate_xy):
-        home_y = not isolate_xy 
-        self.home = [True, home_y, False]
-        self.max_dist = axis_limits["x"]["dist"] - margin*2
-    def Calc(self, axis_limits, veloc, accel, margin):
-        self._calc(axis_limits, veloc, accel, margin)
-        self.dist = calculate_distance(veloc, accel)/2
-        self._validate(margin)
-        self.pos = {
-            "x": [
-                axis_limits["x"]["max"] - self.dist,
-                axis_limits["x"]["max"] - margin
-            ],
-            "y": [None, None],
-            "z": [None, None]
-        }
-
-class MoveY(Move):
-    def Init(self, axis_limits, margin, isolate_xy):
-        home_x = not isolate_xy 
-        self.home = [home_x, True, False]
-        self.max_dist = axis_limits["y"]["dist"] - margin*2
-    def Calc(self, axis_limits, veloc, accel, margin):
-        self._calc(axis_limits, veloc, accel, margin)
-        self.dist = calculate_distance(veloc, accel)/2
-        self._validate(margin)
-        self.pos = {
-            "x": [None, None],
-            "y": [
-                axis_limits["y"]["max"] - self.dist,
-                axis_limits["y"]["max"] - margin
-            ],
-            "z": [None, None]
-        }
-
-class MoveDiagX(Move):
-    home = [True, True, False]
-    def Init(self, axis_limits, margin, _):
-        self.max_dist = min(axis_limits["x"]["dist"], axis_limits["y"]["dist"]) - margin*2
-    def Calc(self, axis_limits, veloc, accel, margin):
-        self._calc(axis_limits, veloc, accel, margin)
-        self.dist = (calculate_distance(veloc, accel)/2 * math.sin(45))
-        self._validate(margin)
-        self.pos = {
-            "x": [
-                axis_limits["x"]["max"] - self.dist,
-                axis_limits["x"]["max"] - margin
-            ],
-            "y": [
-                axis_limits["y"]["max"] - self.dist,
-                axis_limits["y"]["max"] - margin
-            ],
-            "z": [None, None]
-        }
-
-class MoveDiagY(Move):
-    home = [True, True, False]
-    def Init(self, axis_limits, margin, _):
-        self.max_dist = min(axis_limits["x"]["dist"], axis_limits["y"]["dist"]) - margin*2
-    def Calc(self, axis_limits, veloc, accel, margin):
-        self._calc(axis_limits, veloc, accel, margin)
-        self.dist = (calculate_distance(veloc, accel)/2 * math.sin(45))
-        self._validate(margin)
-        self.pos = {
-            "x": [
-                axis_limits["x"]["min"] + self.dist,
-                axis_limits["x"]["min"] + margin
-            ],
-            "y": [
-                axis_limits["y"]["max"] - self.dist,
-                axis_limits["y"]["max"] - margin
-            ],
-            "z": [None, None]
-        }
-
-class MoveZ(Move):
-    home = [False, False, True]
-    def Init(self, axis_limits, margin, _):
-        self.max_dist = axis_limits["z"]["dist"] - margin*2
-    def Calc(self, axis_limits, veloc, accel, margin):
-        self.dist = (calculate_distance(veloc, accel))
-        self._validate(margin)
-        self.pos = {
-            "x": [None, None],
-            "y": [None, None],
-        }
-        if axis_limits["z"]["home"] <= axis_limits["z"]["min"]:
-            self.pos["z"] =  [
-                axis_limits["z"]["min"] + self.dist,
-                axis_limits["z"]["min"] + margin
-            ]
-        else:
-            self.pos["z"] =  [
-                axis_limits["z"]["max"] - self.dist,
-                axis_limits["z"]["max"] - margin
-            ]
-
-class AttemptWrapper:
-    def __init__(self):
-        self.type: str = ""
-        self.axis: str = ""
-        self.min: float = None
-        self.max: float = None
-        self.accuracy: float = None
-        self.max_missed: int = None
-        self.margin: float = None
-        self.accel: float = 0.0
-        self.veloc: float = 0.0
-        
-        self.home_steps: float = None
-        
-        self.tries: int = 0
-        self.move: Move = None
-        self.move_dist: float = 0.0
-        self.move_valid = True
-        self.move_missed: dict = None
-        self.move_time_prehome: float = 0.0
-        self.move_time: float = 0.0
-        self.move_time_posthome: float = 0.0
-        self.time_start: float = 0.0
-        self.time_last: float = 0.0
-        self.time_total: float = 0.0
-
-    def __str__(self):
-        fmt = f"AttemptWrapper {self.type} on {self.axis}, try {self.tries}\n"
-        fmt += f"| Min: {self.min:.0f}, Max: {self.max:.0f}\n"
-        fmt += f"| Accuracy: {self.accuracy*100}%, Max Missed: {self.max_missed:.0f}\n"
-        fmt += f"| Margin: {self.margin}, Accel: {self.accel:.0f}, Veloc: {self.veloc:.0f}\n"
-        fmt += f"| Move: {self.move}"
-        fmt += f"| Valid: {self.move_valid}, Dist: {self.move_dist:.0f}\n"
-        fmt += f"| Times: {self.move_time_prehome:.2f}/{self.move_time:.2f}/{self.move_time_posthome:.2f}s over {self.time_last:.2f}"
-        return fmt
+from auto_speed_funcs import calculate_graph, calculate_accel, calculate_velocity
+from auto_speed_move import Move, MoveX, MoveY, MoveZ, MoveDiagX, MoveDiagY
+from auto_speed_wrappers import ResultsWrapper, AttemptWrapper
 
 class AutoSpeed:
     def __init__(self, config):
@@ -230,8 +30,7 @@ class AutoSpeed:
             self.default_axes += f"{axis},"
         self.default_axes = self.default_axes[:-1]
 
-        self.margin         = config.getfloat('margin', default=20.0, above=0.0)
-
+        self.margin          = config.getfloat(  'margin',          default=20.0, above=0.0)
         self.settling_home   = config.getboolean('settling_home',   default=True)
         self.max_missed      = config.getfloat(  'max_missed',      default=1.0)
         self.endstop_samples = config.getint(    'endstop_samples', default=3, minval=2)
@@ -250,11 +49,13 @@ class AutoSpeed:
         self.validate_inner_margin = config.getfloat('validate_inner_margin', default=20.0, above=0.0)
         self.validate_iterations   = config.getint(  'validate_iterations', default=50, minval=1)
 
-        self.results_dir = config.get(
-            'results_dir',
-            default=(os.path.dirname(self.printer.start_args['log_file'])
-                     or os.path.expanduser('~/printer_data/config'))
-        )
+        for path in ( # Could be problematic if neither of these paths work
+            os.path.dirname(self.printer.start_args['log_file']),
+            os.path.expanduser('~/printer_data/config')
+            ):
+            if os.path.exists(path):
+                results_default = path
+        self.results_dir = config.get('results_dir',default=results_default)
 
         self.toolhead = None
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
@@ -298,14 +99,14 @@ class AutoSpeed:
             self.level = None
 
     def handle_home_rails_end(self, homing_state, rails):
-        # Get rail min and max values
-        # Get x/y stepper microsteps
+        # Get axis min/max values
+        # Get stepper microsteps
         if not len(self.steppers.keys()) == 3:
             for rail in rails:
                 pos_min, pos_max = rail.get_range()
                 for stepper in rail.get_steppers():
                     name = stepper._name
-                    #microsteps = (stepper._steps_per_rotation / full_steps / gearing)
+                    # microsteps = (stepper._steps_per_rotation / full_steps / gearing)
                     if name in ["stepper_x", "stepper_y", "stepper_z"]:
                         config = self.printer.lookup_object('configfile').status_raw_config[name]
                         microsteps = int(config["microsteps"])
@@ -339,13 +140,12 @@ class AutoSpeed:
 
     cmd_AUTO_SPEED_help = ("Automatically find your printer's maximum acceleration/velocity")
     def cmd_AUTO_SPEED(self, gcmd):
-
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
 
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
 
-        self._prepare(gcmd)
+        self._prepare(gcmd) # Make sure the printer is level, [check endstop variance]
         start = perf_counter()
         accel_results = self.cmd_AUTO_SPEED_ACCEL(gcmd)
         veloc_results = self.cmd_AUTO_SPEED_VELOCITY(gcmd)
@@ -479,7 +279,7 @@ class AutoSpeed:
         self.gcode.respond_info(respond)
         return rw
     
-    cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's maximum acceleration/velocity don't miss steps")
+    cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_AUTO_SPEED_VALIDATE(self, gcmd):
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
@@ -507,7 +307,7 @@ class AutoSpeed:
     
     cmd_AUTO_SPEED_GRAPH_help = ("Graph your printer's maximum acceleration at given velocities")
     def cmd_AUTO_SPEED_GRAPH(self, gcmd):
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt # this may fail if matplotlib isn't installed
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
@@ -561,15 +361,15 @@ class AutoSpeed:
             plt.title(f"Max accel at velocity on {aw.axis} to {int(accel_accu*100)}% accuracy")
             plt.xlabel("Velocity")
             plt.ylabel("Acceleration")
-            path = os.path.join(
+            filepath = os.path.join(
                 self.results_dir,
                 f"AUTO_SPEED_GRAPH_{dt.datetime.now():%Y-%m-%d_%H:%M:%S}_{aw.axis}.png"
             )
             self.gcode.respond_info(f"Velocs: {velocs}")
             self.gcode.respond_info(f"Accels: {accels}")
-            self.gcode.respond_info(f"AUTO SPEED graph found max accel on {aw.axis} after {perf_counter() - start:.0f}s\nSaving graph to {path}")
-            os.makedirs(path, exist_ok=True)
-            plt.savefig(path, bbox_inches='tight')
+            self.gcode.respond_info(f"AUTO SPEED graph found max accel on {aw.axis} after {perf_counter() - start:.0f}s\nSaving graph to {filepath}")
+            os.makedirs(filepath, exist_ok=True)
+            plt.savefig(filepath, bbox_inches='tight')
             plt.close()
 
     # -------------------------------------------------------
@@ -948,5 +748,5 @@ class AutoSpeed:
         self.toolhead.requested_accel_to_decel = accel/2
         self.toolhead._calc_junction_deviation()
 
-def load_config(config):
+def load_config(config): # Called by klipper from [auto_speed]
     return AutoSpeed(config)

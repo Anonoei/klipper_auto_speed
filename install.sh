@@ -28,7 +28,7 @@ fi
 
 # Link auto speed to klipper
 echo "Linking auto speed to Klipper..."
-ln -sf "${SRCDIR}/auto_speed.py" "${KLIPPER_PATH}/klippy/extras/auto_speed.py"
+ln -s "${SRCDIR}/*.py" "${KLIPPER_PATH}/klippy/extras/"
 
 # Install matplotlib
 echo "Installing matplotlib in klippy..."
