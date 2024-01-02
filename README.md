@@ -3,7 +3,7 @@
 
 *With one copy/paste and one line in your configuration, automatically optimize your printer's motion*
 
-This module automatically performs movements on the x, y, x diagonal, y diagonal , and z axes, and measures your steppers missed steps at various accelerations/velocities.
+This module automatically performs movements on the *x*, *y*, *x-diagonal*, *y-diagonal*, and *z* axes, and measures your steppers missed steps at various accelerations/velocities.
 With the default configuration, this may take *awhile* (~10 minutes).
 Most of the testing time is waiting for your printer to home.
 On my printer with default settings (except MAX_MISSED), it takes ~3.5 minutes for acceleration, and ~5 minutes for velocity.
@@ -11,12 +11,14 @@ On my printer with default settings (except MAX_MISSED), it takes ~3.5 minutes f
 **Sensorless homing**: If you're using sensorless homing `MAX_MISSED=1.0` is probably too low.
 The endstop variance check will tell you how many steps you lose when homing.
 For instance, on my printer I lose around 0-4.2 steps each home.
-I run `AUTO_SPEED MAX_MISSED=10.0` to account for that variance, and occasional wildly different results.
+I run `AUTO_SPEED MAX_MISSED=10.0` to account for that variance, and occasional wildly different endstop results.
 
 **This module is under development**, and has only been validated on CoreXY printers: You may run into issues or bugs, feel free to use the discord channel, or post an issue here.
  - [Discord - DOOMCUBE User Projects](https://discord.com/channels/825469421346226226/1162192150822404106)
 
 Your printer shouldn't have any crashes due to the movement patterns used, and re-homing before/after each test, so it's safe to walk away and let it do it's thing.
+
+Using Ellis' pattern (AUTO_SPEED_VALIDATE) is **NOT** a safe movement pattern. Please ensure your toolhead isn't crashing before walking away.
 
 # Table of Contents
  - [Overview](https://github.com/Anonoei/klipper_auto_speed#overview)
@@ -27,7 +29,7 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
    - [Installation](https://github.com/Anonoei/klipper_auto_speed#installation)
      - [Moonraker Update Manager](https://github.com/Anonoei/klipper_auto_speed#moonraker-update-manager)
    - [Configuration](https://github.com/Anonoei/klipper_auto_speed#configuration)
-   - [Macro](https://github.com/Anonoei/klipper_auto_speed#macro)
+   - [Macros](https://github.com/Anonoei/klipper_auto_speed#macro)
      - [AUTO_SPEED](https://github.com/Anonoei/klipper_auto_speed#auto_speed)
      - [AUTO_SPEED_ACCEL](https://github.com/Anonoei/klipper_auto_speed#auto_speed_accel)
      - [AUTO_SPEED_VELOCITY](https://github.com/Anonoei/klipper_auto_speed#auto_speed_velocity)
@@ -45,17 +47,22 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
   - `AUTO_SPEED_ACCEL AXIS="y"`
 - Find maximum acceleration on y, then x axis
   - `AUTO_SPEED_VELOCITY AXIS="y,x"`
-- Validate your printer's current accel/velocity
+- Validate your printer's current accel/velocity (Ellis' test pattern)
   - `AUTO_SPEED_VALIDATE`
-- Graph your printer's max accel
+- Graph your printer's max velocity/accel
   - `AUTO_SPEED_GRAPH`
-- Graph your printer's max accel between v100 and v1000, over 9 steps
+- Graph your printer's max velocity/accel between v100 and v1000, over 9 steps
   - `AUTO_SPEED_GRAPH VELOCITY_MIN=100 VELOCITY_MAX=1000 VELOCITY_DIV=9`
  
 ## Roadmap
+ - [ ] Export printer results as a 'benchmark' to a database to see average speeds for different printers
  - [ ] Make _ACCEL/_VELOCITY smarter, based on printer size
- - [ ] Add support for running through moonraker
- - [ ] Save validated/measured results to printer config
+ - [ ] Add support for running through moonraker (enables scripting different commands, arguments)
+ - [ ] Save validated/measured results to printer config (like SAVE_CONFIG)
+ - [ ] Couple ACCEL/VELOCITY similar to AUTO_SPEED_GRAPH
+   - [ ] Add AUTO_SPEED ACCEL=10000 - to find what velocity lets you use accel 10000
+   - [ ] Add AUTO_SPEED VELOC=500 - to find what accel lets you use velocity 500
+   - [ ] Make AUTO_SPEED measure different accels/velocity to find the best values based on printer size
  - [X] Add testing Z axis
  - [X] Reduce code duplication
  - [X] Check kinematics to find best movement patterns
@@ -64,24 +71,25 @@ Your printer shouldn't have any crashes due to the movement patterns used, and r
 
 ## How does it work?
  1. Home your printer
- 2. If your print is enclosed, heat soak it. You want to run this module at the typical state your printer is in when you're printing.
+ 2. If your print is enclosed, heat soak it. You want to run this module in the typical state your printer is in when you're printing.
  3. Run `AUTO_SPEED`
-    1. Check endstop variance
-       - Validate the endstops are accurate enough for `MAX_MISSED`
+    1. Prepare
+       1. Make sure the printer is level
+       2. Check endstop variance
+          - Validate the endstops are accurate enough for `MAX_MISSED`
     2. Find the maximum acceleration
        - Perform a binary search between `ACCEL_MIN` and `ACCEL_MAX`
-       - velocity = $sqrt(travel/accel)*accel / 2.5$
        1. Home, and save stepper start steps
        2. Perform the movement check on the specified axis
        3. Home, and save stepper stop steps
+       4. If difference between start/stop steps is more than `max_missed`, go to next step
     3. Find maximum velocity
        - Perform a binary search between `VELOCITY_MIN` and `VELOCITY_MAX`
-       - accel = $\frac{velocity^2}{travel} * 2.5$
        1. Home, and save stepper start steps
        2. Perform the movement check on the specified axis
        3. Home, and save stepper stop steps
+       4. If difference between start/stop steps is more than `max_missed`, go to next step
     4. Show results
-       - Print results on each axis, for both accel and velocity, and also print the recommended (derated) values
 
 ## Using Klipper Auto Speed
 
@@ -98,7 +106,7 @@ managed_services: klipper
 
 ### Installation
  To install this module you need to clone the repository and run the `install.sh` script.
- Depending on when you installed klipper, you may also need to update your klippy-env python version.
+ **Depending on when you installed klipper, you may also need to [update your klippy-env python version.](https://github.com/Anonoei/klipper_auto_speed#update-klippy-env)**
 
 #### Automatic installation
 ```
@@ -135,29 +143,29 @@ Place this in your printer.cfg
 The values listed below are the defaults Auto Speed uses. You can include them if you wish to change their values or run into issues.
 ```
 [auto_speed]
-axis: diag_x, diag_y  ; One or multiple of `x`, `y`, `diag_x`, `diag_y`, `z`
+#axis: diag_x, diag_y  ; One or multiple of `x`, `y`, `diag_x`, `diag_y`, `z`
 
-margin: 20            ; How far away from your axes to perform movements
+#margin: 20            ; How far away from your axes to perform movements
 
-settling_home: True   ; Perform settling home before starting Auto Speed
-max_missed: 1.0       ; Maximum full steps that can be missed
-endstop_samples: 3    ; How many endstop samples to take for endstop variance
+#settling_home: 1      ; Perform settling home before starting Auto Speed
+#max_missed: 1.0       ; Maximum full steps that can be missed
+#endstop_samples: 3    ; How many endstop samples to take for endstop variance
 
-accel_min: 1000.0     ; Minimum acceleration test may try
-accel_max: 50000.0    ; Maximum acceleration test may try
-accel_accu: 0.05      ; Keep binary searching until the result is within this percentage
+#accel_min: 1000.0     ; Minimum acceleration test may try
+#accel_max: 50000.0    ; Maximum acceleration test may try
+#accel_accu: 0.05      ; Keep binary searching until the result is within this percentage
 
-velocity_min: 50.0    ; Minimum velocity test may try
-velocity_max: 5000.0  ; Maximum velocity test may try
-velocity_accu: 0.05   ; Keep binary searching until the result is within this percentage
+#velocity_min: 50.0    ; Minimum velocity test may try
+#velocity_max: 5000.0  ; Maximum velocity test may try
+#velocity_accu: 0.05   ; Keep binary searching until the result is within this percentage
 
-derate: 0.8           ; Derate discovered results by this amount
+#derate: 0.8           ; Derate discovered results by this amount
 
-validate_margin: Unset      ; Margin for VALIDATE, Defaults to margin
-validate_inner_margin: 20.0 ; Margin for VALIDATE inner pattern
-validate_iterations: 50     ; Perform VALIDATE pattern this many times
+#validate_margin: Unset      ; Margin for VALIDATE, Defaults to margin
+#validate_inner_margin: 20.0 ; Margin for VALIDATE inner pattern
+#validate_iterations: 50     ; Perform VALIDATE pattern this many times
 
-results_dir: ~/printer_data/config ; Destination directory for graphs
+#results_dir: ~/printer_data/config ; Destination directory for graphs
 ```
 
 ### Macro
@@ -242,23 +250,47 @@ VARIANCE          | 1       | Check endstop variance
  Console output is slightly different depending on whether testing acceleration/velocity, and which axis is being tested.
 
  - `axis` is one of `x`, `y`, `diag_x`, `diag_y`, `z`
- - The three times `after` times are first home time, movement time, end home time
+ - The three times after `after` are (first home time)/(movement time)/(end home time)
+ - `#`s before decimals are variable, `#`s after decimals are static
 
-For acceleration tests:
+### Acceleration tests
+```
+AUTO SPEED accel on `axis` try # (#.##s)
+Moved #.##mm at a###/v### after #.##/#.##/#.##s
+Missed X #.##, Y #.##
+```
+Example:
 ```
 AUTO SPEED accel on diag_x try 1 (19.66s)
 Moved 1.43mm at a17333/v241 after 8.92/0.30/9.93s
 Missed X 0.31, Y 2.00
 ```
 
-Velocity tests are the same as acceleration except a few details
+### Velocity tests
+```
+AUTO SPEED velocity on `axis` try # (#.##s)
+Moved #.##mm at a###/v### after #.##/#.##/#.##s
+Missed X #.##, Y #.##
+```
+Example:
 ```
 AUTO SPEED velocity on diag_y try 1 (23.91s)
 Moved 13.44mm at a91456/v1700 after 8.92/0.31/13.87s
 Missed X 0.06, Y 132.00
 ```
 
-Acceleration results
+### Acceleration results
+```
+AUTO SPEED found maximum acceleration after #.##s
+| `AXIS 1` max: ###
+| `AXIS 2` max: ###
+
+Recommended values:
+| `AXIS 1` max: ###
+| `AXIS 2` max: ###
+Recommended acceleration: ###
+```
+Example:
 ```
 AUTO SPEED found maximum acceleration after 218.00s
 | DIAG X max: 48979
@@ -270,7 +302,18 @@ Recommended values:
 Recommended acceleration: 39183
 ```
 
-Velocity results
+### Velocity results
+```
+AUTO SPEED found maximum velocity after #.##s
+| `AXIS 1` max: ###
+| `AXIS 2` max: ###
+
+Recommended values
+| `AXIS 1` max: ###
+| `AXIS 2` max: ###
+Recommended velocity: ###
+```
+Example:
 ```
 AUTO SPEED found maximum velocity after 307.60s
 | DIAG X max: 577
@@ -282,7 +325,15 @@ Recommended values
 Recommended velocity: 442
 ```
 
-Recommended results
+### Recommended results
+```
+AUTO SPEED found recommended acceleration and velocity after #.##s
+| `AXIS 1` max: a### v###
+| `AXIS 2`: a### v###
+Recommended accel: ###
+Recommended velocity: ###
+```
+Example:
 ```
 AUTO SPEED found recommended acceleration and velocity after 525.61s
 | DIAG X max: a39183 v462
