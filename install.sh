@@ -1,7 +1,7 @@
 #!/bin/bash
 # automatically calculate your printer's maximum acceleration/velocity
 #
-# Copyright (C) 2023 Anonoei <dev@anonoei.com>
+# Copyright (C) 2024 Anonoei <dev@anonoei.com>
 #
 # This file may be distributed under the terms of the MIT license.
 
@@ -28,7 +28,11 @@ fi
 
 # Link auto speed to klipper
 echo "Linking auto speed to Klipper..."
-ln -s "${SRCDIR}/*.py" "${KLIPPER_PATH}/klippy/extras/"
+ln -sf "${SRCDIR}/auto_speed.py" "${KLIPPER_PATH}/klippy/extras/auto_speed.py"
+mkdir -p "${KLIPPER_PATH}/klippy/extras/autospeed"
+for file in `ls autospeed/*.py`; do
+    ln -sf "${SRCDIR}/${file}" "${KLIPPER_PATH}/klippy/extras/${file}"
+done
 
 # Install matplotlib
 echo "Installing matplotlib in klippy..."

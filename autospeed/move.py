@@ -1,6 +1,12 @@
+# Find your printers max speed before losing steps
+#
+# Copyright (C) 2024 Anonoei <dev@anonoei.com>
+#
+# This file may be distributed under the terms of the MIT license.
+
 import math
 
-from auto_speed_funcs import calculate_distance
+from .funcs import calculate_distance
 
 class Move:
     home = [False, False, False]
