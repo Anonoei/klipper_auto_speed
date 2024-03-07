@@ -63,6 +63,8 @@ Using Ellis' pattern (AUTO_SPEED_VALIDATE) is **NOT** a safe movement pattern. P
    - [ ] Add AUTO_SPEED ACCEL=10000 - to find what velocity lets you use accel 10000
    - [ ] Add AUTO_SPEED VELOC=500 - to find what accel lets you use velocity 500
    - [ ] Make AUTO_SPEED measure different accels/velocity to find the best values based on printer size
+ - [ ] Variable motor current
+ - [ ] Variable homing speed
  - [X] Add testing Z axis
  - [X] Reduce code duplication
  - [X] Check kinematics to find best movement patterns

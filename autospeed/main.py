@@ -147,6 +147,11 @@ class AutoSpeed:
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
 
         self._prepare(gcmd) # Make sure the printer is level, [check endstop variance]
+
+        move_z = gcmd.get_int('Z', None)
+        if move_z is not None:
+            self._move([None, None, move_z], self.th_veloc)
+
         start = perf_counter()
         accel_results = self.cmd_AUTO_SPEED_ACCEL(gcmd)
         veloc_results = self.cmd_AUTO_SPEED_VELOCITY(gcmd)
