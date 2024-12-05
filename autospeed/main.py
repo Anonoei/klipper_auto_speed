@@ -56,7 +56,7 @@ class AutoSpeed:
             ):
             if os.path.exists(path):
                 results_default = path
-        self.results_dir = config.get('results_dir',default=results_default)
+        self.results_dir = os.path.expanduser(config.get('results_dir',default=results_default))
 
         self.toolhead = None
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
