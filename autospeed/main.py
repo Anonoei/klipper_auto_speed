@@ -52,6 +52,8 @@ class AutoSpeed:
         self.validate_iterations   = config.getint(  'validate_iterations', default=50, minval=1)
 
         results_default = os.path.expanduser('~')
+        show_macros = config.getboolean('show_macros_in_webui', default=False)
+
         for path in ( # Could be problematic if neither of these paths work
             os.path.dirname(self.printer.start_args['log_file']),
             os.path.expanduser('~/printer_data/config'),
@@ -64,30 +66,51 @@ class AutoSpeed:
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler("homing:home_rails_end", self.handle_home_rails_end)
 
-        self.gcode.register_command('AUTO_SPEED',
-                                    self.cmd_AUTO_SPEED,
-                                    desc=self.cmd_AUTO_SPEED_help)
-        self.gcode.register_command('AUTO_SPEED_VELOCITY',
-                                    self.cmd_AUTO_SPEED_VELOCITY,
-                                    desc=self.cmd_AUTO_SPEED_VELOCITY_help)
-        self.gcode.register_command('AUTO_SPEED_ACCEL',
-                                    self.cmd_AUTO_SPEED_ACCEL,
-                                    desc=self.cmd_AUTO_SPEED_ACCEL_help)
-        self.gcode.register_command('AUTO_SPEED_VALIDATE',
-                                    self.cmd_AUTO_SPEED_VALIDATE,
-                                    desc=self.cmd_AUTO_SPEED_VALIDATE_help)
-        self.gcode.register_command('AUTO_SPEED_GRAPH',
-                                    self.cmd_AUTO_SPEED_GRAPH,
-                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
-        self.gcode.register_command('X_ENDSTOP_ACCURACY',
-                                    self.cmd_X_ENDSTOP_ACCURACY,
-                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
-        self.gcode.register_command('Y_ENDSTOP_ACCURACY',
-                                    self.cmd_Y_ENDSTOP_ACCURACY,
-                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
-        self.gcode.register_command('Z_ENDSTOP_ACCURACY',
-                                    self.cmd_Z_ENDSTOP_ACCURACY,
-                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
+        measurement_commands = [
+            ('AUTO_SPEED', self.cmd_AUTO_SPEED, self.cmd_AUTO_SPEED_help),
+            ('AUTO_SPEED_VELOCITY', self.cmd_AUTO_SPEED_VELOCITY, self.cmd_AUTO_SPEED_VELOCITY_help),
+            ('AUTO_SPEED_ACCEL', self.cmd_AUTO_SPEED_ACCEL, self.cmd_AUTO_SPEED_ACCEL_help),
+            ('AUTO_SPEED_VALIDATE', self.cmd_AUTO_SPEED_VALIDATE, self.cmd_AUTO_SPEED_VALIDATE_help),
+            ('AUTO_SPEED_GRAPH', self.cmd_AUTO_SPEED_GRAPH, self.cmd_AUTO_SPEED_GRAPH_help),
+            ('X_ENDSTOP_ACCURACY', self.cmd_X_ENDSTOP_ACCURACY, self.cmd_AUTO_SPEED_GRAPH_help),
+            ('Y_ENDSTOP_ACCURACY', self.cmd_Y_ENDSTOP_ACCURACY, self.cmd_AUTO_SPEED_GRAPH_help),
+            ('Z_ENDSTOP_ACCURACY', self.cmd_Z_ENDSTOP_ACCURACY, self.cmd_AUTO_SPEED_GRAPH_help),
+        ]
+        command_descriptions = {name: desc for name, _, desc in measurement_commands}
+        gcode = self.printer.lookup_object('gcode')
+        for name, command, description in measurement_commands:
+            gcode.register_command(f'_{name}' if show_macros else name, command, desc=description)
+
+         # Load the dummy macros with their description in order to show them in the web interfaces
+        if show_macros:
+            pconfig = self.printer.lookup_object('configfile')
+            dirname = os.path.dirname(os.path.realpath(__file__))
+            filename = os.path.join(dirname, 'dummy_macros.cfg')
+            try:
+                dummy_macros_cfg = pconfig.read_config(filename)
+            except Exception as err:
+                raise config.error(f'Cannot load AutoSpeed dummy macro {filename}') from err
+
+            for gcode_macro in dummy_macros_cfg.get_prefix_sections('gcode_macro '):
+                gcode_macro_name = gcode_macro.get_name()
+
+                # Replace the dummy description by the one here (to avoid code duplication and define it in only one place)
+                command = gcode_macro_name.split(' ', 1)[1]
+                description = command_descriptions.get(command, 'AutoSpeed macro')
+                gcode_macro.fileconfig.set(gcode_macro_name, 'description', description)
+
+                # Add the section to the Klipper configuration object with all its options
+                if not config.fileconfig.has_section(gcode_macro_name.lower()):
+                    config.fileconfig.add_section(gcode_macro_name.lower())
+                for option in gcode_macro.fileconfig.options(gcode_macro_name):
+                    value = gcode_macro.fileconfig.get(gcode_macro_name, option)
+                    config.fileconfig.set(gcode_macro_name.lower(), option, value)
+
+                    # Small trick to ensure the new injected sections are considered valid by Klipper config system
+                    config.access_tracking[(gcode_macro_name.lower(), option.lower())] = 1
+
+                # Finally, load the section within the printer objects
+                self.printer.load_object(config, gcode_macro_name.lower())
 
         self.level = None
 
