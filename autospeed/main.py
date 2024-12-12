@@ -20,7 +20,7 @@ class AutoSpeed:
         self.gcode_move = self.printer.load_object(config, 'gcode_move')
 
         self.printer_kinematics = self.config.getsection("printer").get("kinematics")
-        self.isolate_xy = self.printer_kinematics == 'cartesian' or self.printer_kinematics == 'corexz'
+        self.isolate_xy = self.printer_kinematics == 'cartesian' or self.printer_kinematics == 'corexz' or self.printer_kinematics == 'limited_corexz'
 
         self.valid_axes = ["x", "y", "diag_x", "diag_y", "z"]
         self.axes = self._parse_axis(config.get('axis', 'x, y' if self.isolate_xy else 'diag_x, diag_y'))
