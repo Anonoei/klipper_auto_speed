@@ -26,7 +26,7 @@ class AutoSpeed:
         self.axes = self._parse_axis(config.get('axis', 'x, y' if self.isolate_xy else 'diag_x, diag_y'))
 
         self.default_axes = ''
-        
+
         for axis in self.axes:
             self.default_axes += f"{axis},"
         self.default_axes = self.default_axes[:-1]
@@ -39,6 +39,7 @@ class AutoSpeed:
         self.accel_min  = config.getfloat('accel_min',  default=1000.0, above=1.0)
         self.accel_max  = config.getfloat('accel_max',  default=100000.0, above=self.accel_min)
         self.accel_accu = config.getfloat('accel_accu', default=0.05, above=0.0, below=1.0)
+        self.scv        = config.getfloat('scv', default=5, above=1.0, below=50)
 
         self.veloc_min  = config.getfloat('velocity_min',  default=50.0, above=1.0)
         self.veloc_max  = config.getfloat('velocity_max',  default=5000.0, above=self.veloc_min)
@@ -50,13 +51,14 @@ class AutoSpeed:
         self.validate_inner_margin = config.getfloat('validate_inner_margin', default=20.0, above=0.0)
         self.validate_iterations   = config.getint(  'validate_iterations', default=50, minval=1)
 
+        results_default = os.path.expanduser('~')
         for path in ( # Could be problematic if neither of these paths work
             os.path.dirname(self.printer.start_args['log_file']),
-            os.path.expanduser('~/printer_data/config')
+            os.path.expanduser('~/printer_data/config'),
             ):
             if os.path.exists(path):
                 results_default = path
-        self.results_dir = config.get('results_dir',default=results_default)
+        self.results_dir = os.path.expanduser(config.get('results_dir',default=results_default))
 
         self.toolhead = None
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
@@ -77,17 +79,27 @@ class AutoSpeed:
         self.gcode.register_command('AUTO_SPEED_GRAPH',
                                     self.cmd_AUTO_SPEED_GRAPH,
                                     desc=self.cmd_AUTO_SPEED_GRAPH_help)
-        
+        self.gcode.register_command('X_ENDSTOP_ACCURACY',
+                                    self.cmd_X_ENDSTOP_ACCURACY,
+                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
+        self.gcode.register_command('Y_ENDSTOP_ACCURACY',
+                                    self.cmd_Y_ENDSTOP_ACCURACY,
+                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
+        self.gcode.register_command('Z_ENDSTOP_ACCURACY',
+                                    self.cmd_Z_ENDSTOP_ACCURACY,
+                                    desc=self.cmd_AUTO_SPEED_GRAPH_help)
+
         self.level = None
-        
+
         self.steppers = {}
         self.axis_limits = {}
-    
+
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
         # Reduce speed/acceleration for positioning movement
         self.th_accel = self.toolhead.max_accel/2
         self.th_veloc = self.toolhead.max_velocity/2
+        self.th_scv = self.toolhead.square_corner_velocity
 
         # Find and define leveling method
         if self.printer.lookup_object("screw_tilt_adjust", None) is not None:
@@ -111,9 +123,17 @@ class AutoSpeed:
                     if name in ["stepper_x", "stepper_y", "stepper_z"]:
                         config = self.printer.lookup_object('configfile').status_raw_config[name]
                         microsteps = int(config["microsteps"])
-                        self.steppers[name[-1]] = [pos_min, pos_max, microsteps]
 
-            
+                        homing_retract_dist = config.get("homing_retract_dist", None)
+                        if homing_retract_dist is None:
+                            homing_retract_dist = 5 # This shouldn't be hardcoded
+                        homing_retract_dist = float(homing_retract_dist)
+                        second_homing_speed = config.get("second_homing_speed", None)
+                        if second_homing_speed is None:
+                            second_homing_speed = 5 # This shouldn't be hardcoded
+                        second_homing_speed = float(second_homing_speed)
+                        self.steppers[name[-1]] = [pos_min, pos_max, microsteps, homing_retract_dist, second_homing_speed]
+
             if self.steppers.get("x", None) is not None:
                 self.axis_limits["x"] = {
                     "min": self.steppers["x"][0],
@@ -171,12 +191,12 @@ class AutoSpeed:
         respond += f"Recommended accel: {accel_results.vals['rec']:.0f}\n"
         respond += f"Recommended velocity: {veloc_results.vals['rec']:.0f}\n"
         self.gcode.respond_info(respond)
-        
+
         if validate:
             gcmd._params["ACCEL"] = accel_results.vals['rec']
             gcmd._params["VELOCITY"] = veloc_results.vals['rec']
             self.cmd_AUTO_SPEED_VALIDATE(gcmd)
-    
+
     cmd_AUTO_SPEED_ACCEL_help = ("Automatically find your printer's maximum acceleration")
     def cmd_AUTO_SPEED_ACCEL(self, gcmd):
         if not len(self.steppers.keys()) == 3:
@@ -192,12 +212,13 @@ class AutoSpeed:
         accel_accu = gcmd.get_float('ACCEL_ACCU', self.accel_accu, above=0.0, below=1.0)
 
         veloc = gcmd.get_float('VELOCITY', 1.0, above=1.0)
+        scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
         respond = "AUTO SPEED finding maximum acceleration on"
         for axis in axes:
             respond += f" {axis.upper().replace('_', ' ')},"
         self.gcode.respond_info(respond[:-1])
-        
+
         rw = ResultsWrapper()
         start = perf_counter()
         for axis in axes:
@@ -210,6 +231,7 @@ class AutoSpeed:
             aw.min = accel_min
             aw.max  = accel_max
             aw.veloc = veloc
+            aw.scv = scv
             self.init_axis(aw, axis)
             rw.vals[aw.axis] = self.binary_search(aw)
         rw.duration = perf_counter() - start
@@ -246,6 +268,7 @@ class AutoSpeed:
         veloc_accu = gcmd.get_float('VELOCITY_ACCU', self.veloc_accu, above=0.0, below=1.0)
 
         accel = gcmd.get_float('ACCEL', 1.0, above=1.0)
+        scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
         respond = "AUTO SPEED finding maximum velocity on"
         for axis in axes:
@@ -264,6 +287,7 @@ class AutoSpeed:
             aw.min = veloc_min
             aw.max  = veloc_max
             aw.accel = accel
+            aw.scv = scv
             self.init_axis(aw, axis)
             rw.vals[aw.axis] = self.binary_search(aw)
         rw.duration = perf_counter() - start
@@ -284,25 +308,27 @@ class AutoSpeed:
 
         self.gcode.respond_info(respond)
         return rw
-    
+
     cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_AUTO_SPEED_VALIDATE(self, gcmd):
         if not len(self.steppers.keys()) == 3:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
-        
+
         max_missed   = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
         margin       = gcmd.get_float('VALIDATE_MARGIN', default=self.validate_margin, above=0.0)
         small_margin = gcmd.get_float('VALIDATE_INNER_MARGIN', default=self.validate_inner_margin, above=0.0)
         iterations   = gcmd.get_int('VALIDATE_ITERATIONS', default=self.validate_iterations, minval=1)
-        
-        accel = gcmd.get_float('ACCEL', default=self.toolhead.max_accel, above=0.0) 
+
+        accel = gcmd.get_float('ACCEL', default=self.toolhead.max_accel, above=0.0)
         veloc = gcmd.get_float('VELOCITY', default=self.toolhead.max_velocity, above=0.0)
-        
+        scv =   gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
+
         respond = f"AUTO SPEED validating over {iterations} iterations\n"
         respond += f"Acceleration: {accel:.0f}\n"
-        respond += f"Velocity: {veloc:.0f}"
+        respond += f"Velocity: {veloc:.0f}\n"
+        respond += f"SCV: {scv:.0f}"
         self.gcode.respond_info(respond)
-        self._set_velocity(veloc, accel)
+        self._set_velocity(veloc, accel, scv)
         valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed)
 
         respond = f"AUTO SPEED validated results after {duration:.2f}s\n"
@@ -310,7 +336,7 @@ class AutoSpeed:
         respond += f"Missed X {missed_x:.2f}, Y {missed_y:.2f}"
         self.gcode.respond_info(respond)
         return valid
-    
+
     cmd_AUTO_SPEED_GRAPH_help = ("Graph your printer's maximum acceleration at given velocities")
     def cmd_AUTO_SPEED_GRAPH(self, gcmd):
         import matplotlib.pyplot as plt # this may fail if matplotlib isn't installed
@@ -393,9 +419,9 @@ class AutoSpeed:
         self._move([self.axis_limits["x"]["center"], self.axis_limits["y"]["center"], self.axis_limits["z"]["center"]], self.th_veloc)
 
         self._variance(gcmd)
-       
+
         return perf_counter() - start
-    
+
     def _level(self, gcmd):
         level = gcmd.get_int('LEVEL', 1, minval=0, maxval=1)
 
@@ -403,7 +429,7 @@ class AutoSpeed:
             return
         if self.level is None:
             return
-        
+
         lookup = None
         name = None
         if self.level == "STA":
@@ -423,7 +449,7 @@ class AutoSpeed:
             self.gcode._process_commands([name], False)
             if lm.z_status.applied is False:
                 raise gcmd.error(f"Failed to level printer! Please manually ensure your printer is level.")
-                
+
     def _variance(self, gcmd):
         variance        = gcmd.get_int('VARIANCE', 1, minval=0, maxval=1)
 
@@ -434,9 +460,9 @@ class AutoSpeed:
 
         if variance == 0:
             return
-        
+
         self.gcode.respond_info(f"AUTO SPEED checking endstop variance over {endstop_samples} samples")
-        
+
         if settling_home:
             self.toolhead.wait_moves()
             self._home(True, True, False)
@@ -452,7 +478,7 @@ class AutoSpeed:
         x_max = max(endstops["x"]) if check_x else 0
         y_max = max(endstops["y"]) if check_y else 0
         self.gcode.respond_info(f"AUTO SPEED endstop variance:\nMissed X:{x_max:.2f} steps, Y:{y_max:.2f} steps")
-        
+
         if x_max >= max_missed or y_max >= max_missed:
             raise gcmd.error(f"Please increase MAX_MISSED (currently {max_missed}), or tune your steppers/homing macro.")
 
@@ -470,7 +496,7 @@ class AutoSpeed:
             if axis in self.valid_axes:
                 axes.append(axis)
         return axes
-    
+
     def _axis_to_str(self, raw_axes):
         axes = ""
         for axis in raw_axes:
@@ -509,14 +535,14 @@ class AutoSpeed:
             if o_veloc == 1.0:
                 aw.accel = calculate_accel(aw.veloc, aw.move.max_dist)
             aw.move.Calc(self.axis_limits, m_stat, m_var, aw.margin)
-            
+
         elif aw.type in ("velocity"): # stat is accel, var is velocity
             m_stat = aw.accel
             o_accel = aw.accel
             if o_accel == 1.0:
                 aw.veloc = calculate_velocity(aw.accel, aw.move.max_dist)
             aw.move.Calc(self.axis_limits, m_var, m_stat, aw.margin)
-        
+
         measuring = True
         measured_val = None
         aw.tries = 0
@@ -569,17 +595,17 @@ class AutoSpeed:
     def _attempt(self, aw: AttemptWrapper):
         timeAttempt = perf_counter()
 
-        self._set_velocity(self.th_veloc, self.th_accel)
+        self._set_velocity(self.th_veloc, self.th_accel, self.th_scv)
         self._move([aw.move.pos["x"][0], aw.move.pos["y"][0], aw.move.pos["z"][0]], self.th_veloc)
         self.toolhead.wait_moves()
-        self._set_velocity(aw.veloc, aw.accel)
+        self._set_velocity(aw.veloc, aw.accel, aw.scv)
         timeMove = perf_counter()
 
         self._move([aw.move.pos["x"][1], aw.move.pos["y"][1], aw.move.pos["z"][1]], aw.veloc)
         self.toolhead.wait_moves()
         aw.move_time = perf_counter() - timeMove
         aw.move_dist = aw.move.dist
-        
+
         valid, aw.home_steps, aw.missed, aw.move_time_posthome = self._posttest(aw.home_steps, aw.max_missed, aw.move.home)
         aw.time_last = perf_counter() - timeAttempt
         return valid
@@ -686,7 +712,8 @@ class AutoSpeed:
     def _home(self, x=True, y=True, z=True):
         prevAccel = self.toolhead.max_accel
         prevVeloc = self.toolhead.max_velocity
-        self._set_velocity(self.th_veloc, self.th_accel)
+        prevScv   = self.toolhead.square_corner_velocity
+        self._set_velocity(self.th_veloc, self.th_accel, self.th_scv)
         command = ["G28"]
         if x:
             command[-1] += " X0"
@@ -696,7 +723,7 @@ class AutoSpeed:
             command[-1] += " Z0"
         self.gcode._process_commands(command, False)
         self.toolhead.wait_moves()
-        self._set_velocity(prevVeloc, prevAccel)
+        self._set_velocity(prevVeloc, prevAccel, prevScv)
 
     def _get_steps(self):
         kin = self.toolhead.get_kinematics()
@@ -717,7 +744,7 @@ class AutoSpeed:
 
         home_steps = self._get_steps()
         return home_steps, dur
-    
+
     def _posttest(self, start_steps, max_missed, home: list):
         self.toolhead.wait_moves()
         dur = perf_counter()
@@ -746,10 +773,168 @@ class AutoSpeed:
                 valid = False
 
         return valid, stop_steps, missed, dur
-    
-    def _set_velocity(self, velocity: float, accel: float):
+
+    def _set_velocity(self, velocity: float, accel: float, scv: float):
         #self.gcode.respond_info(f"AUTO SPEED setting limits to VELOCITY={velocity} ACCEL={accel}")
         self.toolhead.max_velocity = velocity
         self.toolhead.max_accel = accel
-        self.toolhead.requested_accel_to_decel = accel/2
+        self.toolhead.requested_accel_to_decel = accel
+        self.toolhead.square_corner_velocity = scv
         self.toolhead._calc_junction_deviation()
+
+    def cmd_X_ENDSTOP_ACCURACY(self, gcmd):
+
+        if not len(self.steppers.keys()) == 3:
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+
+        # Number of samples for accuracy check
+        sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
+
+        # Retrieve homing parameters for the X axis from the previously stored values
+        second_homing_speed = self.steppers['x'][4]
+        homing_retract_dist = self.steppers['x'][3]
+
+        # Toolhead object to control the movement
+        toolhead = self.printer.lookup_object('toolhead')
+        pos = toolhead.get_position()
+
+        # Log the starting position for X
+        gcmd.respond_info("X_ENDSTOP_ACCURACY at X:%.3f (samples=%d)\n" % (pos[0], sample_count))
+        gcmd.respond_info("Second Homing Speed: %.2f mm/s" % second_homing_speed)
+        gcmd.respond_info("Homing Retract Distance: %.2f mm" % homing_retract_dist)
+
+
+        # Create a dummy gcode command for a single sample
+        fo_params = dict(gcmd.get_command_parameters())
+        fo_params['SAMPLES'] = '1'
+        gcode = self.printer.lookup_object('gcode')
+        fo_gcmd = gcode.create_gcode_command("", "", fo_params)
+
+        # List to store the X positions hit during each sample
+        positions = []
+
+        # Move to the X endstop sample_count times and collect the X positions
+        for _ in range(sample_count):
+            self._home(True, False, False)
+            pos = toolhead.get_position()  # Get the current X position after homing
+            positions.append(pos[0])
+            toolhead.manual_move([pos[0] - homing_retract_dist, None, None], speed=second_homing_speed)  # Move away from the endstop
+
+        # Calculate the maximum, minimum, average, and standard deviation for X positions
+        max_value = max(positions)
+        min_value = min(positions)
+        avg_value = sum(positions) / len(positions)
+        range_value = max_value - min_value
+
+        deviation_sum = sum([(x - avg_value) ** 2 for x in positions])
+        sigma = (deviation_sum / len(positions)) ** 0.5
+
+        # Display results
+        gcmd.respond_info(
+            "X endstop accuracy results: maximum %.6f, minimum %.6f, range %.6f, "
+            "average %.6f, standard deviation %.6f" % (max_value, min_value, range_value, avg_value, sigma))
+
+
+    def cmd_Y_ENDSTOP_ACCURACY(self, gcmd):
+
+        if not len(self.steppers.keys()) == 3:
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+
+        # Number of samples for accuracy check
+        sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
+
+        # Retrieve homing parameters for the Y axis from the previously stored values
+        second_homing_speed = self.steppers['y'][4]
+        homing_retract_dist = self.steppers['y'][3]
+
+        # Toolhead object to control the movement
+        toolhead = self.printer.lookup_object('toolhead')
+        pos = toolhead.get_position()
+
+        # Log the starting position for Y
+        gcmd.respond_info("Y_ENDSTOP_ACCURACY at Y:%.3f (samples=%d)\n" % (pos[1], sample_count))
+        gcmd.respond_info("Second Homing Speed: %.2f mm/s" % second_homing_speed)
+        gcmd.respond_info("Homing Retract Distance: %.2f mm" % homing_retract_dist)
+
+
+        # Create a dummy gcode command for a single sample
+        fo_params = dict(gcmd.get_command_parameters())
+        fo_params['SAMPLES'] = '1'
+        gcode = self.printer.lookup_object('gcode')
+        fo_gcmd = gcode.create_gcode_command("", "", fo_params)
+
+        # List to store the Y positions hit during each sample
+        positions = []
+
+        # Move to the Y endstop sample_count times and collect the Y positions
+        for _ in range(sample_count):
+            self._home(False, True, False)
+            pos = toolhead.get_position()  # Get the current Y position after homing
+            positions.append(pos[1])
+            toolhead.manual_move([None, pos[1] - homing_retract_dist, None], speed=second_homing_speed)  # Move away from the endstop
+
+        # Calculate the maximum, minimum, average, and standard deviation for Y positions
+        max_value = max(positions)
+        min_value = min(positions)
+        avg_value = sum(positions) / len(positions)
+        range_value = max_value - min_value
+
+        deviation_sum = sum([(y - avg_value) ** 2 for y in positions])
+        sigma = (deviation_sum / len(positions)) ** 0.5
+
+        # Display results
+        gcmd.respond_info(
+            "Y endstop accuracy results: maximum %.6f, minimum %.6f, range %.6f, "
+            "average %.6f, standard deviation %.6f" % (max_value, min_value, range_value, avg_value, sigma))
+
+    def cmd_Z_ENDSTOP_ACCURACY(self, gcmd):
+
+        if not len(self.steppers.keys()) == 3:
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+
+        # Number of samples for accuracy check
+        sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
+
+        # Retrieve homing parameters for the Z axis from the previously stored values
+        second_homing_speed = self.steppers['z'][4]
+        homing_retract_dist = self.steppers['z'][3]
+
+        # Toolhead object to control the movement
+        toolhead = self.printer.lookup_object('toolhead')
+        pos = toolhead.get_position()
+
+        # Log the starting position for Z
+        gcmd.respond_info("Z_ENDSTOP_ACCURACY at Z:%.3f (samples=%d)\n" % (pos[2], sample_count))
+        gcmd.respond_info("Second Homing Speed: %.2f mm/s" % second_homing_speed)
+        gcmd.respond_info("Homing Retract Distance: %.2f mm" % homing_retract_dist)
+
+
+        # Create a dummy gcode command for a single sample
+        fo_params = dict(gcmd.get_command_parameters())
+        fo_params['SAMPLES'] = '1'
+        gcode = self.printer.lookup_object('gcode')
+        fo_gcmd = gcode.create_gcode_command("", "", fo_params)
+
+        # List to store the Z positions hit during each sample
+        positions = []
+
+        # Move to the Z endstop sample_count times and collect the Z positions
+        for _ in range(sample_count):
+            self._home(False, False, True)
+            pos = toolhead.get_position()  # Get the current Z position after homing
+            positions.append(pos[2])
+            toolhead.manual_move([None, None, pos[2] + homing_retract_dist], speed=second_homing_speed)  # Move away from the endstop
+
+        # Calculate the maximum, minimum, average, and standard deviation for Z positions
+        max_value = max(positions)
+        min_value = min(positions)
+        avg_value = sum(positions) / len(positions)
+        range_value = max_value - min_value
+
+        deviation_sum = sum([(z - avg_value) ** 2 for z in positions])
+        sigma = (deviation_sum / len(positions)) ** 0.5
+
+        # Display results
+        gcmd.respond_info(
+            "Z endstop accuracy results: maximum %.6f, minimum %.6f, range %.6f, "
+            "average %.6f, standard deviation %.6f" % (max_value, min_value, range_value, avg_value, sigma))
