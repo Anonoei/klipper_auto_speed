@@ -38,10 +38,10 @@ class AttemptWrapper:
         self.margin: float = None
         self.accel: float = 0.0
         self.veloc: float = 0.0
-        self.scv: int = None
-        
+        self.scv: float = 0.0
+
         self.home_steps: float = None
-        
+
         self.tries: int = 0
         self.move: Move = None
         self.move_dist: float = 0.0
