@@ -162,7 +162,7 @@ class AutoSpeed:
     cmd_AUTO_SPEED_help = ("Automatically find your printer's maximum acceleration/velocity")
     def cmd_AUTO_SPEED(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
 
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
 
@@ -200,7 +200,7 @@ class AutoSpeed:
     cmd_AUTO_SPEED_ACCEL_help = ("Automatically find your printer's maximum acceleration")
     def cmd_AUTO_SPEED_ACCEL(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -256,7 +256,7 @@ class AutoSpeed:
     cmd_AUTO_SPEED_VELOCITY_help = ("Automatically find your printer's maximum velocity")
     def cmd_AUTO_SPEED_VELOCITY(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -312,7 +312,7 @@ class AutoSpeed:
     cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_AUTO_SPEED_VALIDATE(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
 
         max_missed   = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
         margin       = gcmd.get_float('VALIDATE_MARGIN', default=self.validate_margin, above=0.0)
@@ -322,6 +322,8 @@ class AutoSpeed:
         accel = gcmd.get_float('ACCEL', default=self.toolhead.max_accel, above=0.0)
         veloc = gcmd.get_float('VELOCITY', default=self.toolhead.max_velocity, above=0.0)
         scv =   gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
+        #adding axis to validation, todo: add auto validation as last step on graph
+        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         respond = f"AUTO SPEED validating over {iterations} iterations\n"
         respond += f"Acceleration: {accel:.0f}\n"
@@ -329,7 +331,7 @@ class AutoSpeed:
         respond += f"SCV: {scv:.0f}"
         self.gcode.respond_info(respond)
         self._set_velocity(veloc, accel, scv)
-        valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed)
+        valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed, axes)
 
         respond = f"AUTO SPEED validated results after {duration:.2f}s\n"
         respond += f"Valid: {valid}\n"
@@ -341,7 +343,7 @@ class AutoSpeed:
     def cmd_AUTO_SPEED_GRAPH(self, gcmd):
         import matplotlib.pyplot as plt # this may fail if matplotlib isn't installed
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -411,7 +413,7 @@ class AutoSpeed:
     # -------------------------------------------------------
     def _prepare(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
 
         start = perf_counter()
         # Level the printer if it's not leveled
@@ -610,7 +612,7 @@ class AutoSpeed:
         aw.time_last = perf_counter() - timeAttempt
         return valid
 
-    def _validate(self, speed, iterations, margin, small_margin, max_missed):
+    def _validate(self, speed, iterations, margin, small_margin, max_missed, axes):
         pos = {
             "x": {
                 "min": self.axis_limits["x"]["min"] + margin,
@@ -629,33 +631,91 @@ class AutoSpeed:
         self._home(True, True, False)
         start_steps = self._get_steps()
         start = perf_counter()
-        for _ in range(iterations):
-            self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
-            self._move([pos["x"]["max"], pos["y"]["max"], None], speed)
-            self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
-            self._move([pos["x"]["max"], pos["y"]["min"], None], speed)
-            self._move([pos["x"]["min"], pos["y"]["max"], None], speed)
-            self._move([pos["x"]["max"], pos["y"]["min"], None], speed)
+        if axes == "XY":
+            for _ in range(iterations):
+                self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
+                self._move([pos["x"]["max"], pos["y"]["max"], None], speed)
+                self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
+                self._move([pos["x"]["max"], pos["y"]["min"], None], speed)
+                self._move([pos["x"]["min"], pos["y"]["max"], None], speed)
+                self._move([pos["x"]["max"], pos["y"]["min"], None], speed)
 
-            # Large pattern box
-            self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
-            self._move([pos["x"]["min"], pos["y"]["max"], None], speed)
-            self._move([pos["x"]["max"], pos["y"]["max"], None], speed)
-            self._move([pos["x"]["max"], pos["y"]["min"], None], speed)
+                # Large pattern box
+                self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
+                self._move([pos["x"]["min"], pos["y"]["max"], None], speed)
+                self._move([pos["x"]["max"], pos["y"]["max"], None], speed)
+                self._move([pos["x"]["max"], pos["y"]["min"], None], speed)
 
-            # Small pattern diagonals
-            self._move([pos["x"]["center_min"], pos["y"]["center_min"], None], speed)
-            self._move([pos["x"]["center_max"], pos["y"]["center_max"], None], speed)
-            self._move([pos["x"]["center_min"], pos["y"]["center_min"], None], speed)
-            self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
-            self._move([pos["x"]["center_min"], pos["y"]["center_max"], None], speed)
-            self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
+                # Small pattern diagonals
+                self._move([pos["x"]["center_min"], pos["y"]["center_min"], None], speed)
+                self._move([pos["x"]["center_max"], pos["y"]["center_max"], None], speed)
+                self._move([pos["x"]["center_min"], pos["y"]["center_min"], None], speed)
+                self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
+                self._move([pos["x"]["center_min"], pos["y"]["center_max"], None], speed)
+                self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
 
-            # Small pattern box
-            self._move([pos["x"]["center_min"], pos["y"]["center_min"], None], speed)
-            self._move([pos["x"]["center_min"], pos["y"]["center_max"], None], speed)
-            self._move([pos["x"]["center_max"], pos["y"]["center_max"], None], speed)
-            self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
+                # Small pattern box
+                self._move([pos["x"]["center_min"], pos["y"]["center_min"], None], speed)
+                self._move([pos["x"]["center_min"], pos["y"]["center_max"], None], speed)
+                self._move([pos["x"]["center_max"], pos["y"]["center_max"], None], speed)
+                self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
+        elif axes == "X":
+            for _ in range(iterations):
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+
+                # Large pattern box
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+
+                # Small pattern diagonals
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+
+                # Small pattern box
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+
+        elif axes == "Y":
+            for _ in range(iterations):
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+
+                # Large pattern box
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+
+                # Small pattern diagonals
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+
+                # Small pattern box
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
 
         self.toolhead.wait_moves()
         duration = perf_counter() - start
@@ -785,7 +845,7 @@ class AutoSpeed:
     def cmd_X_ENDSTOP_ACCURACY(self, gcmd):
 
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -838,7 +898,7 @@ class AutoSpeed:
     def cmd_Y_ENDSTOP_ACCURACY(self, gcmd):
 
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -890,7 +950,7 @@ class AutoSpeed:
     def cmd_Z_ENDSTOP_ACCURACY(self, gcmd):
 
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            self._home(True, True, True)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
