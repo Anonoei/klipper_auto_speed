@@ -328,7 +328,8 @@ class AutoSpeed:
         respond = f"AUTO SPEED validating over {iterations} iterations\n"
         respond += f"Acceleration: {accel:.0f}\n"
         respond += f"Velocity: {veloc:.0f}\n"
-        respond += f"SCV: {scv:.0f}"
+        respond += f"SCV: {scv:.0f}\n"
+        respond += f"Axes: {axes:.0f}"
         self.gcode.respond_info(respond)
         self._set_velocity(veloc, accel, scv)
         valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed, axes)
@@ -631,6 +632,7 @@ class AutoSpeed:
         self._home(True, True, False)
         start_steps = self._get_steps()
         start = perf_counter()
+
         if axes == "XY":
             for _ in range(iterations):
                 self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
@@ -659,6 +661,7 @@ class AutoSpeed:
                 self._move([pos["x"]["center_min"], pos["y"]["center_max"], None], speed)
                 self._move([pos["x"]["center_max"], pos["y"]["center_max"], None], speed)
                 self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
+
         elif axes == "X":
             for _ in range(iterations):
                 self._move([pos["x"]["min"], None, None], speed)
