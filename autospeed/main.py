@@ -162,7 +162,8 @@ class AutoSpeed:
     cmd_AUTO_SPEED_help = ("Automatically find your printer's maximum acceleration/velocity")
     def cmd_AUTO_SPEED(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
 
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
 
@@ -200,7 +201,8 @@ class AutoSpeed:
     cmd_AUTO_SPEED_ACCEL_help = ("Automatically find your printer's maximum acceleration")
     def cmd_AUTO_SPEED_ACCEL(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -256,7 +258,8 @@ class AutoSpeed:
     cmd_AUTO_SPEED_VELOCITY_help = ("Automatically find your printer's maximum velocity")
     def cmd_AUTO_SPEED_VELOCITY(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -312,7 +315,8 @@ class AutoSpeed:
     cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_AUTO_SPEED_VALIDATE(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
 
         max_missed   = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
         margin       = gcmd.get_float('VALIDATE_MARGIN', default=self.validate_margin, above=0.0)
@@ -330,7 +334,7 @@ class AutoSpeed:
             respond += f"on axis {axis.upper().replace('_', ' ')}.\n"
         respond += f"Acceleration: {accel:.0f}\n"
         respond += f"Velocity: {veloc:.0f}\n"
-        respond += f"SCV: {scv:.0f}\n"
+        respond += f"SCV: {scv:.0f}"
         self.gcode.respond_info(respond)
         self._set_velocity(veloc, accel, scv)
         valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed, axes)
@@ -345,6 +349,7 @@ class AutoSpeed:
     def cmd_AUTO_SPEED_GRAPH(self, gcmd):
         import matplotlib.pyplot as plt # this may fail if matplotlib isn't installed
         if not len(self.steppers.keys()) == 3:
+            #raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
             self._home(True, True, True)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
@@ -360,6 +365,7 @@ class AutoSpeed:
 
         accel_min_slope = gcmd.get_int('ACCEL_MIN_SLOPE', 100, minval=0)
         accel_max_slope = gcmd.get_int('ACCEL_MAX_SLOPE', 1800, minval=accel_min_slope)
+        scv =   gcmd.get_float('SCV', self.scv, above=1.0)
 
         veloc_step = (veloc_max - veloc_min)//(veloc_div - 1)
         velocs = [round((v * veloc_step) + veloc_min) for v in range(0, veloc_div)]
@@ -375,6 +381,7 @@ class AutoSpeed:
         aw.accuracy = accel_accu
         aw.max_missed = max_missed
         aw.margin = margin
+        aw.scv = scv
         for axis in axes:
             start = perf_counter()
             self.init_axis(aw, axis)
@@ -391,8 +398,8 @@ class AutoSpeed:
                 accels.append(self.binary_search(aw))
             plt.plot(velocs, accels, 'go-', label='measured')
             plt.plot(velocs, [a*derate for a in accels], 'g-', label='derated')
-            plt.plot(velocs, accel_mins, 'b--', label='min')
-            plt.plot(velocs, accel_maxs, 'r--', label='max')
+            #plt.plot(velocs, accel_mins, 'b--', label='min')
+            #plt.plot(velocs, accel_maxs, 'r--', label='max')
             plt.legend(loc='upper right')
             plt.title(f"Max accel at velocity on {aw.axis} to {int(accel_accu*100)}% accuracy")
             plt.xlabel("Velocity")
@@ -415,7 +422,8 @@ class AutoSpeed:
     # -------------------------------------------------------
     def _prepare(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
 
         start = perf_counter()
         # Level the printer if it's not leveled
@@ -849,7 +857,8 @@ class AutoSpeed:
     def cmd_X_ENDSTOP_ACCURACY(self, gcmd):
 
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -902,7 +911,8 @@ class AutoSpeed:
     def cmd_Y_ENDSTOP_ACCURACY(self, gcmd):
 
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -954,7 +964,8 @@ class AutoSpeed:
     def cmd_Z_ENDSTOP_ACCURACY(self, gcmd):
 
         if not len(self.steppers.keys()) == 3:
-            self._home(True, True, True)
+            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            #self._home(True, True, True)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
