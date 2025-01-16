@@ -323,13 +323,14 @@ class AutoSpeed:
         veloc = gcmd.get_float('VELOCITY', default=self.toolhead.max_velocity, above=0.0)
         scv =   gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
         #adding axis to validation, todo: add auto validation as last step on graph
-        axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
+        axes = gcmd.get("AXIS", self.axes)
 
-        respond = f"AUTO SPEED validating over {iterations} iterations\n"
+        respond = f"AUTO SPEED validating over {iterations} iterations, "
+        for axis in axes:
+            respond += f"on axis {axis.upper().replace('_', ' ')}.\n"
         respond += f"Acceleration: {accel:.0f}\n"
         respond += f"Velocity: {veloc:.0f}\n"
         respond += f"SCV: {scv:.0f}\n"
-        respond += f"Axes: {axes:.0f}"
         self.gcode.respond_info(respond)
         self._set_velocity(veloc, accel, scv)
         valid, duration, missed_x, missed_y = self._validate(veloc, iterations, margin, small_margin, max_missed, axes)
@@ -633,7 +634,65 @@ class AutoSpeed:
         start_steps = self._get_steps()
         start = perf_counter()
 
-        if axes == "XY":
+        if axes.upper() == "X":
+            for _ in range(iterations):
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+
+                # Large pattern box
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["min"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+                self._move([pos["x"]["max"], None, None], speed)
+
+                # Small pattern diagonals
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+
+                # Small pattern box
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_min"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+                self._move([pos["x"]["center_max"], None, None], speed)
+
+        elif axes.upper() == "Y":
+            for _ in range(iterations):
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+
+                # Large pattern box
+                self._move([None, pos["y"]["min"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["max"], None], speed)
+                self._move([None, pos["y"]["min"], None], speed)
+
+                # Small pattern diagonals
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+
+                # Small pattern box
+                self._move([None, pos["y"]["center_min"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_max"], None], speed)
+                self._move([None, pos["y"]["center_min"], None], speed)
+
+        else:
             for _ in range(iterations):
                 self._move([pos["x"]["min"], pos["y"]["min"], None], speed)
                 self._move([pos["x"]["max"], pos["y"]["max"], None], speed)
@@ -661,64 +720,6 @@ class AutoSpeed:
                 self._move([pos["x"]["center_min"], pos["y"]["center_max"], None], speed)
                 self._move([pos["x"]["center_max"], pos["y"]["center_max"], None], speed)
                 self._move([pos["x"]["center_max"], pos["y"]["center_min"], None], speed)
-
-        elif axes == "X":
-            for _ in range(iterations):
-                self._move([pos["x"]["min"], None, None], speed)
-                self._move([pos["x"]["max"], None, None], speed)
-                self._move([pos["x"]["min"], None, None], speed)
-                self._move([pos["x"]["max"], None, None], speed)
-                self._move([pos["x"]["min"], None, None], speed)
-                self._move([pos["x"]["max"], None, None], speed)
-
-                # Large pattern box
-                self._move([pos["x"]["min"], None, None], speed)
-                self._move([pos["x"]["min"], None, None], speed)
-                self._move([pos["x"]["max"], None, None], speed)
-                self._move([pos["x"]["max"], None, None], speed)
-
-                # Small pattern diagonals
-                self._move([pos["x"]["center_min"], None, None], speed)
-                self._move([pos["x"]["center_max"], None, None], speed)
-                self._move([pos["x"]["center_min"], None, None], speed)
-                self._move([pos["x"]["center_max"], None, None], speed)
-                self._move([pos["x"]["center_min"], None, None], speed)
-                self._move([pos["x"]["center_max"], None, None], speed)
-
-                # Small pattern box
-                self._move([pos["x"]["center_min"], None, None], speed)
-                self._move([pos["x"]["center_min"], None, None], speed)
-                self._move([pos["x"]["center_max"], None, None], speed)
-                self._move([pos["x"]["center_max"], None, None], speed)
-
-        elif axes == "Y":
-            for _ in range(iterations):
-                self._move([None, pos["y"]["min"], None], speed)
-                self._move([None, pos["y"]["max"], None], speed)
-                self._move([None, pos["y"]["min"], None], speed)
-                self._move([None, pos["y"]["min"], None], speed)
-                self._move([None, pos["y"]["max"], None], speed)
-                self._move([None, pos["y"]["min"], None], speed)
-
-                # Large pattern box
-                self._move([None, pos["y"]["min"], None], speed)
-                self._move([None, pos["y"]["max"], None], speed)
-                self._move([None, pos["y"]["max"], None], speed)
-                self._move([None, pos["y"]["min"], None], speed)
-
-                # Small pattern diagonals
-                self._move([None, pos["y"]["center_min"], None], speed)
-                self._move([None, pos["y"]["center_max"], None], speed)
-                self._move([None, pos["y"]["center_min"], None], speed)
-                self._move([None, pos["y"]["center_min"], None], speed)
-                self._move([None, pos["y"]["center_max"], None], speed)
-                self._move([None, pos["y"]["center_min"], None], speed)
-
-                # Small pattern box
-                self._move([None, pos["y"]["center_min"], None], speed)
-                self._move([None, pos["y"]["center_max"], None], speed)
-                self._move([None, pos["y"]["center_max"], None], speed)
-                self._move([None, pos["y"]["center_min"], None], speed)
 
         self.toolhead.wait_moves()
         duration = perf_counter() - start
