@@ -371,6 +371,7 @@ class AutoSpeed:
         aw.accuracy = accel_accu
         aw.max_missed = max_missed
         aw.margin = margin
+        aw.svc = self.scv
         for axis in axes:
             start = perf_counter()
             self.init_axis(aw, axis)
