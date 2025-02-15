@@ -344,9 +344,11 @@ class AutoSpeed:
             raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
-        margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
-        derate         = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
-        max_missed      = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
+        margin     = gcmd.get_float("MARGIN", self.margin, above=0.0)
+        derate     = gcmd.get_float('DERATE', self.derate, above=0.0, below=1.0)
+        max_missed = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
+        
+        scv        = gcmd.get_float('SCV', default=self.toolhead.square_corner_velocity, above=1.0)
 
         veloc_min  = gcmd.get_float('VELOCITY_MIN', 200.0, above=0.0)
         veloc_max  = gcmd.get_float('VELOCITY_MAX', 700.0, above=veloc_min)
@@ -371,7 +373,7 @@ class AutoSpeed:
         aw.accuracy = accel_accu
         aw.max_missed = max_missed
         aw.margin = margin
-        aw.svc = self.scv
+        aw.svc = scv
         for axis in axes:
             start = perf_counter()
             self.init_axis(aw, axis)
