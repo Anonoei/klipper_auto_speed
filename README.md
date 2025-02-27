@@ -167,6 +167,7 @@ The values listed below are the defaults Auto Speed uses. You can include them i
 #validate_inner_margin: 20.0 ; Margin for VALIDATE inner pattern
 #validate_iterations: 50     ; Perform VALIDATE pattern this many times
 
+# show_macros_in_webui: False       ; Display macros in web UI (e.g. Mainsail, Fluidd)
 #results_dir: ~/printer_data/config ; Destination directory for graphs
 ```
 
