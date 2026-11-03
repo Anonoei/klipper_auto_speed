@@ -62,7 +62,6 @@ class AutoSpeed:
 
         self.toolhead = None
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
-        self.printer.register_event_handler("homing:home_rails_end", self.handle_home_rails_end)
 
         self.gcode.register_command('AUTO_SPEED',
                                     self.cmd_AUTO_SPEED,
@@ -111,58 +110,59 @@ class AutoSpeed:
         else:
             self.level = None
 
-    def handle_home_rails_end(self, homing_state, rails):
+        # homing:home_rails_end isn't sent when Z homes with probe:z_virtual_endstop
+        self._load_rails(getattr(self.toolhead.get_kinematics(), "rails", []))
+
+    def _load_rails(self, rails):
         # Get axis min/max values
         # Get stepper microsteps
-        if not len(self.steppers.keys()) == 3:
-            for rail in rails:
-                pos_min, pos_max = rail.get_range()
-                for stepper in rail.get_steppers():
-                    name = stepper._name
-                    # microsteps = (stepper._steps_per_rotation / full_steps / gearing)
-                    if name in ["stepper_x", "stepper_y", "stepper_z"]:
-                        config = self.printer.lookup_object('configfile').status_raw_config[name]
-                        microsteps = int(config["microsteps"])
+        for rail in rails:
+            pos_min, pos_max = rail.get_range()
+            for stepper in rail.get_steppers():
+                name = stepper._name
+                # microsteps = (stepper._steps_per_rotation / full_steps / gearing)
+                if name in ["stepper_x", "stepper_y", "stepper_z"]:
+                    config = self.printer.lookup_object('configfile').status_raw_config[name]
+                    microsteps = int(config["microsteps"])
 
-                        homing_retract_dist = config.get("homing_retract_dist", None)
-                        if homing_retract_dist is None:
-                            homing_retract_dist = 5 # This shouldn't be hardcoded
-                        homing_retract_dist = float(homing_retract_dist)
-                        second_homing_speed = config.get("second_homing_speed", None)
-                        if second_homing_speed is None:
-                            second_homing_speed = 5 # This shouldn't be hardcoded
-                        second_homing_speed = float(second_homing_speed)
-                        self.steppers[name[-1]] = [pos_min, pos_max, microsteps, homing_retract_dist, second_homing_speed]
+                    homing_retract_dist = config.get("homing_retract_dist", None)
+                    if homing_retract_dist is None:
+                        homing_retract_dist = 5 # This shouldn't be hardcoded
+                    homing_retract_dist = float(homing_retract_dist)
+                    second_homing_speed = config.get("second_homing_speed", None)
+                    if second_homing_speed is None:
+                        second_homing_speed = 5 # This shouldn't be hardcoded
+                    second_homing_speed = float(second_homing_speed)
+                    self.steppers[name[-1]] = [pos_min, pos_max, microsteps, homing_retract_dist, second_homing_speed]
 
-            if self.steppers.get("x", None) is not None:
-                self.axis_limits["x"] = {
-                    "min": self.steppers["x"][0],
-                    "max": self.steppers["x"][1],
-                    "center": (self.steppers["x"][0] + self.steppers["x"][1]) / 2,
-                    "dist": self.steppers["x"][1] - self.steppers["x"][0],
-                    "home": self.gcode_move.homing_position[0]
-                }
-            if self.steppers.get("y", None) is not None:
-                self.axis_limits["y"] = {
-                    "min": self.steppers["y"][0],
-                    "max": self.steppers["y"][1],
-                    "center": (self.steppers["y"][0] + self.steppers["y"][1]) / 2,
-                    "dist": self.steppers["y"][1] - self.steppers["y"][0],
-                    "home": self.gcode_move.homing_position[1]
-                }
-            if self.steppers.get("z", None) is not None:
-                self.axis_limits["z"] = {
-                    "min": self.steppers["z"][0],
-                    "max": self.steppers["z"][1],
-                    "center": (self.steppers["z"][0] + self.steppers["z"][1]) / 2,
-                    "dist": self.steppers["z"][1] - self.steppers["z"][0],
-                    "home": self.gcode_move.homing_position[2]
-                }
+        if self.steppers.get("x", None) is not None:
+            self.axis_limits["x"] = {
+                "min": self.steppers["x"][0],
+                "max": self.steppers["x"][1],
+                "center": (self.steppers["x"][0] + self.steppers["x"][1]) / 2,
+                "dist": self.steppers["x"][1] - self.steppers["x"][0],
+                "home": self.gcode_move.homing_position[0]
+            }
+        if self.steppers.get("y", None) is not None:
+            self.axis_limits["y"] = {
+                "min": self.steppers["y"][0],
+                "max": self.steppers["y"][1],
+                "center": (self.steppers["y"][0] + self.steppers["y"][1]) / 2,
+                "dist": self.steppers["y"][1] - self.steppers["y"][0],
+                "home": self.gcode_move.homing_position[1]
+            }
+        if self.steppers.get("z", None) is not None:
+            self.axis_limits["z"] = {
+                "min": self.steppers["z"][0],
+                "max": self.steppers["z"][1],
+                "center": (self.steppers["z"][0] + self.steppers["z"][1]) / 2,
+                "dist": self.steppers["z"][1] - self.steppers["z"][0],
+                "home": self.gcode_move.homing_position[2]
+            }
 
     cmd_AUTO_SPEED_help = ("Automatically find your printer's maximum acceleration/velocity")
     def cmd_AUTO_SPEED(self, gcmd):
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
 
         validate = gcmd.get_int('VALIDATE', 0, minval=0, maxval=1)
 
@@ -199,8 +199,7 @@ class AutoSpeed:
 
     cmd_AUTO_SPEED_ACCEL_help = ("Automatically find your printer's maximum acceleration")
     def cmd_AUTO_SPEED_ACCEL(self, gcmd):
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -255,8 +254,7 @@ class AutoSpeed:
 
     cmd_AUTO_SPEED_VELOCITY_help = ("Automatically find your printer's maximum velocity")
     def cmd_AUTO_SPEED_VELOCITY(self, gcmd):
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin         = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -311,8 +309,7 @@ class AutoSpeed:
 
     cmd_AUTO_SPEED_VALIDATE_help = ("Validate your printer's acceleration/velocity don't miss steps")
     def cmd_AUTO_SPEED_VALIDATE(self, gcmd):
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
 
         max_missed   = gcmd.get_float('MAX_MISSED', self.max_missed, above=0.0)
         margin       = gcmd.get_float('VALIDATE_MARGIN', default=self.validate_margin, above=0.0)
@@ -340,8 +337,7 @@ class AutoSpeed:
     cmd_AUTO_SPEED_GRAPH_help = ("Graph your printer's maximum acceleration at given velocities")
     def cmd_AUTO_SPEED_GRAPH(self, gcmd):
         import matplotlib.pyplot as plt # this may fail if matplotlib isn't installed
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
         axes = self._parse_axis(gcmd.get("AXIS", self._axis_to_str(self.axes)))
 
         margin     = gcmd.get_float("MARGIN", self.margin, above=0.0)
@@ -412,9 +408,16 @@ class AutoSpeed:
     #     Internal Helpers
     #
     # -------------------------------------------------------
-    def _prepare(self, gcmd):
+    def _check_homed(self, gcmd):
         if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+            raise gcmd.error("AUTO SPEED needs stepper_x, stepper_y and stepper_z, this kinematics is not supported.")
+        curtime = self.printer.get_reactor().monotonic()
+        homed_axes = self.toolhead.get_kinematics().get_status(curtime)["homed_axes"]
+        if not len(homed_axes) == 3:
+            raise gcmd.error(f"Printer must be homed first! Found {len(homed_axes)} homed axes.")
+
+    def _prepare(self, gcmd):
+        self._check_homed(gcmd)
 
         start = perf_counter()
         # Level the printer if it's not leveled
@@ -787,8 +790,7 @@ class AutoSpeed:
 
     def cmd_X_ENDSTOP_ACCURACY(self, gcmd):
 
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -840,8 +842,7 @@ class AutoSpeed:
 
     def cmd_Y_ENDSTOP_ACCURACY(self, gcmd):
 
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -892,8 +893,7 @@ class AutoSpeed:
 
     def cmd_Z_ENDSTOP_ACCURACY(self, gcmd):
 
-        if not len(self.steppers.keys()) == 3:
-            raise gcmd.error(f"Printer must be homed first! Found {len(self.steppers.keys())} homed axes.")
+        self._check_homed(gcmd)
 
         # Number of samples for accuracy check
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
